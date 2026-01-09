@@ -3,20 +3,27 @@ const MAX_LOG_ITEMS = 6;
 export function initUI({
   onEnterWorld,
   onPrompt,
-  onToggleAI,
+  onDayChange,
+  onTogglePanel,
   onRequestLocalServerHelp,
+  onToggleAudio,
 }) {
   const enterButton = document.getElementById("enter-button");
   const promptForm = document.getElementById("prompt-form");
   const promptInput = document.getElementById("prompt-input");
   const promptLog = document.getElementById("prompt-log");
   const lockHint = document.getElementById("lock-hint");
-  const aiToggle = document.getElementById("ai-toggle");
-  const aiStatus = document.getElementById("ai-status");
+  const statusPill = document.getElementById("status-pill");
+  const daySelect = document.getElementById("day-select");
+  const hudCard = document.getElementById("hud-card");
+  const hudToggle = document.getElementById("hud-toggle");
+  const panel = document.getElementById("control-panel");
+  const panelToggle = document.getElementById("panel-toggle");
   const fileOverlay = document.getElementById("file-overlay");
   const fileOverlayButton = document.getElementById("file-overlay-button");
   const errorOverlay = document.getElementById("error-overlay");
   const errorOverlayButton = document.getElementById("error-overlay-button");
+  const audioToggle = document.getElementById("audio-toggle");
 
   const toast = document.createElement("div");
   toast.style.position = "absolute";
@@ -38,6 +45,17 @@ export function initUI({
     onEnterWorld?.();
   });
 
+  audioToggle?.addEventListener("click", () => {
+    const enabled = onToggleAudio?.();
+    if (enabled === null || typeof enabled === "undefined") return;
+    audioToggle.textContent = enabled ? "Pausar música" : "Activar música";
+  });
+
+  hudToggle?.addEventListener("click", () => {
+    const collapsed = hudCard?.classList.toggle("collapsed");
+    hudToggle.textContent = collapsed ? "Mostrar panel" : "Minimizar";
+  });
+
   promptForm?.addEventListener("submit", (event) => {
     event.preventDefault();
     const value = promptInput?.value?.trim();
@@ -45,8 +63,7 @@ export function initUI({
     onPrompt?.(value);
   });
 
-  const suggestionSpans = document.querySelectorAll(".suggestions span");
-  suggestionSpans.forEach((span) => {
+  document.querySelectorAll(".suggestions span").forEach((span) => {
     span.style.cursor = "pointer";
     span.addEventListener("click", () => {
       if (promptInput) {
@@ -56,8 +73,14 @@ export function initUI({
     });
   });
 
-  aiToggle?.addEventListener("change", () => {
-    onToggleAI?.(!!aiToggle.checked);
+  daySelect?.addEventListener("change", () => {
+    onDayChange?.(daySelect.value);
+  });
+
+  panelToggle?.addEventListener("click", () => {
+    const collapsed = panel?.classList.toggle("collapsed");
+    panelToggle.textContent = collapsed ? "Mostrar panel" : "Ocultar panel";
+    onTogglePanel?.(!!collapsed);
   });
 
   fileOverlayButton?.addEventListener("click", () => {
@@ -65,9 +88,7 @@ export function initUI({
     hideFileOverlay();
   });
 
-  errorOverlayButton?.addEventListener("click", () => {
-    window.location.reload();
-  });
+  errorOverlayButton?.addEventListener("click", () => window.location.reload());
 
   function markPointerLock(locked) {
     if (!lockHint) return;
@@ -128,9 +149,9 @@ export function initUI({
     }, duration);
   }
 
-  function setAIStatus(message) {
-    if (!aiStatus) return;
-    aiStatus.textContent = message;
+  function setStatus(message) {
+    if (!statusPill) return;
+    statusPill.textContent = message;
   }
 
   function clearPromptInput() {
@@ -149,7 +170,7 @@ export function initUI({
     showError,
     hideError,
     notify,
-    setAIStatus,
+    setStatus,
     clearPromptInput,
   };
 }

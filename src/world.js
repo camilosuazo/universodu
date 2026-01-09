@@ -55,6 +55,49 @@ function tagLabel(tag) {
   }
 }
 
+const DAY_STAGES = {
+  amanecer: {
+    skyColor: 0xfef5e8,
+    fogColor: 0xf1dcb7,
+    fogDensity: 0.0008,
+    sunColor: 0xffe5b5,
+    sunIntensity: 1.35,
+    ambientIntensity: 0.45,
+  },
+  manana: {
+    skyColor: 0xfdf6f1,
+    fogColor: 0xf5e9ce,
+    fogDensity: 0.0007,
+    sunColor: 0xfff0c3,
+    sunIntensity: 1.6,
+    ambientIntensity: 0.6,
+  },
+  tarde: {
+    skyColor: 0xffe7c6,
+    fogColor: 0xf0caa2,
+    fogDensity: 0.0009,
+    sunColor: 0xffc16c,
+    sunIntensity: 1.4,
+    ambientIntensity: 0.5,
+  },
+  atardecer: {
+    skyColor: 0xf6b098,
+    fogColor: 0xd39378,
+    fogDensity: 0.0012,
+    sunColor: 0xf86c4f,
+    sunIntensity: 1.1,
+    ambientIntensity: 0.35,
+  },
+  noche: {
+    skyColor: 0x0d1220,
+    fogColor: 0x0b0f1c,
+    fogDensity: 0.0015,
+    sunColor: 0x6ab0ff,
+    sunIntensity: 0.35,
+    ambientIntensity: 0.2,
+  },
+};
+
 export function createWorld(canvas, { onPointerLockChange, onPointerLockError }) {
   const renderer = new THREE.WebGLRenderer({
     canvas,
@@ -86,7 +129,8 @@ export function createWorld(canvas, { onPointerLockChange, onPointerLockError })
     onPointerLockChange?.(false);
   });
 
-  scene.add(new THREE.AmbientLight(0xfef1d8, 0.45));
+  const ambient = new THREE.AmbientLight(0xfef1d8, 0.45);
+  scene.add(ambient);
   const sun = new THREE.DirectionalLight(0xffe5b5, 1.35);
   sun.position.set(-80, 180, -90);
   sun.castShadow = true;
@@ -124,6 +168,8 @@ export function createWorld(canvas, { onPointerLockChange, onPointerLockError })
   const velocity = new THREE.Vector3();
   const direction = new THREE.Vector3();
   const keys = { forward: false, backward: false, left: false, right: false };
+  const touchLook = { active: false, startX: 0, startY: 0, yaw: 0, pitch: 0 };
+  const virtualJoystick = { active: false, startX: 0, startY: 0, deltaX: 0, deltaY: 0 };
 
   function requestPointerLock() {
     try {
@@ -159,6 +205,71 @@ export function createWorld(canvas, { onPointerLockChange, onPointerLockError })
   document.addEventListener("keydown", (event) => handleKey(event, true));
   document.addEventListener("keyup", (event) => handleKey(event, false));
 
+  function bindTouchControls() {
+    const joystick = document.getElementById("joystick" );
+    const joystickThumb = document.getElementById("joystick-thumb");
+    const lookZone = document.getElementById("look-zone");
+    if (joystick && joystickThumb) {
+      const handleMove = (clientX, clientY) => {
+        const rect = joystick.getBoundingClientRect();
+        const relX = clientX - (rect.left + rect.width / 2);
+        const relY = clientY - (rect.top + rect.height / 2);
+        const maxRadius = rect.width / 2;
+        const distance = Math.min(Math.sqrt(relX * relX + relY * relY), maxRadius);
+        const angle = Math.atan2(relY, relX);
+        joystickThumb.style.transform = `translate(${Math.cos(angle) * distance}px, ${Math.sin(angle) * distance}px)`;
+        const normalizedX = distance ? Math.cos(angle) * (distance / maxRadius) : 0;
+        const normalizedY = distance ? Math.sin(angle) * (distance / maxRadius) : 0;
+        keys.forward = normalizedY < -0.2;
+        keys.backward = normalizedY > 0.2;
+        keys.left = normalizedX < -0.2;
+        keys.right = normalizedX > 0.2;
+      };
+      const resetThumb = () => {
+        joystickThumb.style.transform = "translate(0,0)";
+        keys.forward = keys.backward = keys.left = keys.right = false;
+      };
+      joystick.addEventListener("touchstart", (event) => {
+        event.preventDefault();
+        const touch = event.touches[0];
+        handleMove(touch.clientX, touch.clientY);
+      }, { passive: false });
+      joystick.addEventListener("touchmove", (event) => {
+        event.preventDefault();
+        const touch = event.touches[0];
+        handleMove(touch.clientX, touch.clientY);
+      }, { passive: false });
+      joystick.addEventListener("touchend", () => {
+        resetThumb();
+      });
+    }
+
+    if (lookZone) {
+      lookZone.addEventListener("touchstart", (event) => {
+        const touch = event.touches[0];
+        touchLook.active = true;
+        touchLook.startX = touch.clientX;
+        touchLook.startY = touch.clientY;
+      });
+      lookZone.addEventListener("touchmove", (event) => {
+        if (!touchLook.active) return;
+        const touch = event.touches[0];
+        const deltaX = touch.clientX - touchLook.startX;
+        const deltaY = touch.clientY - touchLook.startY;
+        touchLook.startX = touch.clientX;
+        touchLook.startY = touch.clientY;
+        controls.getObject().rotation.y -= deltaX * 0.003;
+        camera.rotation.x -= deltaY * 0.002;
+        camera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, camera.rotation.x));
+      }, { passive: false });
+      lookZone.addEventListener("touchend", () => {
+        touchLook.active = false;
+      });
+    }
+  }
+
+  bindTouchControls();
+
   function updateMovement(delta) {
     velocity.x -= velocity.x * 4 * delta;
     velocity.z -= velocity.z * 4 * delta;
@@ -167,7 +278,8 @@ export function createWorld(canvas, { onPointerLockChange, onPointerLockError })
     direction.x = Number(keys.right) - Number(keys.left);
     direction.normalize();
 
-    if (controls.isLocked) {
+    const joystickActive = keys.forward || keys.backward || keys.left || keys.right;
+    if (controls.isLocked || joystickActive) {
       if (keys.forward || keys.backward) {
         velocity.z -= direction.z * WALK_SPEED * delta;
       }
@@ -223,36 +335,67 @@ export function createWorld(canvas, { onPointerLockChange, onPointerLockError })
     switch (tag) {
       case "cacti":
         registerPromptObject(spawnCacti(randomAroundCamera()));
-        break;
+        return;
       case "rocks":
         registerPromptObject(spawnRocks(randomAroundCamera(50, 160)));
-        break;
+        return;
       case "oasis":
         registerPromptObject(spawnOasis(randomAroundCamera(30, 120)));
-        break;
+        return;
       case "ruins":
         registerPromptObject(spawnRuins(randomAroundCamera(80, 200)));
-        break;
+        return;
       case "crystals":
         registerPromptObject(spawnCrystals(randomAroundCamera(60, 170)));
-        break;
+        return;
       case "mirage":
         registerPromptObject(spawnMirage(randomAroundCamera(70, 170)));
-        break;
+        return;
       case "fireflies":
         registerPromptObject(spawnFireflies(randomAroundCamera(30, 80)));
-        break;
+        return;
       case "totems":
         registerPromptObject(spawnTotems(randomAroundCamera(60, 160)));
-        break;
+        return;
+      case "creatures":
+        registerPromptObject(spawnCreatures(randomAroundCamera(20, 80)));
+        return;
+      case "nomads":
+        registerPromptObject(spawnNomads(randomAroundCamera(40, 120)));
+        return;
+      case "structures":
+        registerPromptObject(spawnStructures(randomAroundCamera(90, 200)));
+        return;
+      case "storm":
+        registerPromptObject(spawnStorm(randomAroundCamera(60, 180)));
+        return;
+      case "flora":
+        registerPromptObject(spawnFlora(randomAroundCamera(30, 110)));
+        return;
+      case "portals":
+        registerPromptObject(spawnPortals(randomAroundCamera(70, 150)));
+        return;
+      case "sentinels":
+        registerPromptObject(spawnSentinels(randomAroundCamera(80, 160)));
+        return;
       default:
         registerPromptObject(spawnMirage(randomAroundCamera()));
-        break;
     }
   }
 
   function spawnFromTags(tags) {
     tags.forEach((tag) => spawnHandlers(tag));
+  }
+
+  function setDayStage(stage) {
+    const settings = DAY_STAGES[stage] || DAY_STAGES.amanecer;
+    scene.background.set(settings.skyColor);
+    scene.fog.color.set(settings.fogColor);
+    scene.fog.density = settings.fogDensity;
+    ambient.intensity = settings.ambientIntensity;
+    sun.intensity = settings.sunIntensity;
+    sun.color.set(settings.sunColor);
+    sky.material.color.set(settings.skyColor);
   }
 
   // Paisaje base inicial
@@ -262,6 +405,7 @@ export function createWorld(canvas, { onPointerLockChange, onPointerLockError })
     requestPointerLock,
     spawnFromTags,
     resize,
+    setDayStage,
     parsePromptHeuristics,
   };
 }
@@ -591,6 +735,146 @@ function spawnTotems(center) {
     );
     twist.rotation.y = Math.random() * Math.PI;
     group.add(twist);
+  }
+  return group;
+}
+
+function spawnCreatures(center) {
+  const group = new THREE.Group();
+  const bodyMat = new THREE.MeshStandardMaterial({
+    color: 0xe8d9ff,
+    emissive: 0x38245b,
+    metalness: 0.3,
+    roughness: 0.4,
+  });
+  const limbMat = new THREE.MeshStandardMaterial({ color: 0xffdab8, emissive: 0x3f1e15 });
+  const count = 4 + Math.floor(Math.random() * 4);
+  for (let i = 0; i < count; i += 1) {
+    const creature = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.SphereGeometry(2.2, 18, 18), bodyMat);
+    body.castShadow = true;
+    creature.add(body);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(1.2, 16, 16), bodyMat);
+    head.position.y = 2.5;
+    creature.add(head);
+    const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.2, 2.5, 8), limbMat);
+    antenna.position.set(0.8, 3.6, 0);
+    creature.add(antenna);
+    const limb = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.3, 3.6, 10), limbMat);
+    limb.position.set(1.2, -1, 0.4);
+    limb.rotation.z = Math.PI / 4;
+    creature.add(limb);
+    const offset = new THREE.Vector3((Math.random() - 0.5) * 30, 0, (Math.random() - 0.5) * 30);
+    creature.position.copy(center).add(offset);
+    creature.position.y = 1.6;
+    group.add(creature);
+  }
+  return group;
+}
+
+function spawnNomads(center) {
+  const group = new THREE.Group();
+  const tentMat = new THREE.MeshStandardMaterial({ color: 0xfeccb5, roughness: 0.7 });
+  const fabricMat = new THREE.MeshStandardMaterial({ color: 0xe07143, emissive: 0x2b0600 });
+  const caravan = new THREE.Group();
+  for (let i = 0; i < 3; i += 1) {
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(3, 0.5, 3, 16, 1, true), tentMat);
+    base.rotation.x = Math.PI;
+    base.position.set(i * 6, 2, 0);
+    caravan.add(base);
+    const cloth = new THREE.Mesh(new THREE.PlaneGeometry(6, 3, 1, 1), fabricMat);
+    cloth.position.set(i * 6, 2.2, 0);
+    cloth.rotation.y = (i % 2 === 0 ? 1 : -1) * Math.PI / 12;
+    caravan.add(cloth);
+  }
+  caravan.position.copy(center);
+  group.add(caravan);
+  return group;
+}
+
+function spawnStructures(center) {
+  const group = new THREE.Group();
+  const mat = new THREE.MeshStandardMaterial({
+    color: 0xded7ff,
+    emissive: 0x2c2c54,
+    metalness: 0.5,
+    roughness: 0.25,
+  });
+  const towerCount = 3 + Math.floor(Math.random() * 3);
+  for (let i = 0; i < towerCount; i += 1) {
+    const height = 18 + Math.random() * 15;
+    const tower = new THREE.Mesh(new THREE.CylinderGeometry(2, 3, height, 6, 1, true), mat);
+    tower.castShadow = true;
+    const offset = new THREE.Vector3((Math.random() - 0.5) * 40, height / 2, (Math.random() - 0.5) * 40);
+    tower.position.copy(center).add(offset);
+    group.add(tower);
+    const halo = new THREE.Mesh(new THREE.TorusGeometry(4, 0.3, 16, 60), new THREE.MeshBasicMaterial({ color: 0xffea8a }));
+    halo.rotation.x = Math.PI / 2;
+    halo.position.copy(tower.position).setY(height + 2);
+    group.add(halo);
+  }
+  return group;
+}
+
+function spawnStorm(center) {
+  const group = new THREE.Group();
+  const funnel = new THREE.Mesh(
+    new THREE.ConeGeometry(30, 70, 16, 16, true),
+    new THREE.MeshStandardMaterial({
+      color: 0xcdbba6,
+      transparent: true,
+      opacity: 0.25,
+      side: THREE.DoubleSide,
+    })
+  );
+  funnel.position.copy(center).setY(35);
+  group.add(funnel);
+  const lightning = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.5, 1.2, 40, 8),
+    new THREE.MeshBasicMaterial({ color: 0xfff7ce })
+  );
+  lightning.position.copy(center).setY(20);
+  lightning.rotation.z = Math.PI / 8;
+  group.add(lightning);
+  return group;
+}
+
+function spawnFlora(center) {
+  const group = new THREE.Group();
+  const mat = new THREE.MeshStandardMaterial({ color: 0xc0ffb2, emissive: 0x1f3d28 });
+  const count = 10 + Math.floor(Math.random() * 10);
+  for (let i = 0; i < count; i += 1) {
+    const petal = new THREE.Mesh(new THREE.SphereGeometry(0.8 + Math.random() * 0.6, 8, 8), mat);
+    const offset = new THREE.Vector3((Math.random() - 0.5) * 28, Math.random() * 1.5, (Math.random() - 0.5) * 28);
+    petal.position.copy(center).add(offset);
+    group.add(petal);
+  }
+  return group;
+}
+
+function spawnPortals(center) {
+  const group = new THREE.Group();
+  const ringMat = new THREE.MeshStandardMaterial({ color: 0x96e6ff, emissive: 0x114085, metalness: 0.4 });
+  for (let i = 0; i < 2; i += 1) {
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(10, 1, 16, 80), ringMat);
+    ring.position.copy(center).add(new THREE.Vector3(i * 14 - 7, 8, 0));
+    ring.rotation.y = Math.PI / 4;
+    group.add(ring);
+  }
+  return group;
+}
+
+function spawnSentinels(center) {
+  const group = new THREE.Group();
+  for (let i = 0; i < 4; i += 1) {
+    const sentinel = new THREE.Mesh(
+      new THREE.BoxGeometry(2.5, 14, 2.5),
+      new THREE.MeshStandardMaterial({ color: 0x7078ff, emissive: 0x1b1f3f, metalness: 0.6 })
+    );
+    sentinel.castShadow = true;
+    const offset = new THREE.Vector3(Math.cos((i / 4) * Math.PI * 2) * 10, 7, Math.sin((i / 4) * Math.PI * 2) * 10);
+    sentinel.position.copy(center).add(offset);
+    group.add(sentinel);
   }
   return group;
 }
