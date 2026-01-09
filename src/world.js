@@ -28,10 +28,12 @@ function tagLabel(tag) {
   }
 }
 
+const BASE_URL =
+  (typeof import.meta !== "undefined" && import.meta.env?.BASE_URL) || "/";
 const PRIEST_TRACK_URL =
   (typeof window !== "undefined" && window.UNIVERSODU_PRIEST_TRACK) ||
   (typeof import.meta !== "undefined" && import.meta.env?.VITE_PRIEST_TRACK) ||
-  "/music/sacerdote-theme.mp3";
+  resolveAssetUrl(`${BASE_URL}music/sacerdote-theme.mp3`);
 
 const DAY_STAGES = {
   amanecer: {
@@ -1467,4 +1469,20 @@ function readNumber(value, fallback) {
     if (Number.isFinite(parsed)) return parsed;
   }
   return fallback;
+}
+
+function resolveAssetUrl(path) {
+  if (!path) return path;
+  try {
+    const normalized =
+      path.startsWith("http") || path.startsWith("//")
+        ? path
+        : `${path}`.replace(/\/{2,}/g, "/");
+    const origin =
+      typeof window !== "undefined" && window.location ? window.location.origin : "/";
+    const url = new URL(normalized, origin);
+    return url.pathname + url.search + url.hash;
+  } catch (error) {
+    return path;
+  }
 }
