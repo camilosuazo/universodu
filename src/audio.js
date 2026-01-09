@@ -122,12 +122,8 @@ export function createSpatialTrack({
     return loading;
   }
 
-  async function ensureSource() {
-    if (disabled || source) return;
-    if (!buffer) {
-      await loadBuffer();
-    }
-    if (!buffer || source) return;
+  function tryStartSource() {
+    if (disabled || source || !buffer || ctx.state !== "running") return;
     source = ctx.createBufferSource();
     source.buffer = buffer;
     source.loop = loop;
@@ -145,7 +141,7 @@ export function createSpatialTrack({
       loadBuffer();
     }
     if (!source && buffer) {
-      ensureSource();
+      tryStartSource();
     }
     if (!ctx || !gain) return;
     const safeMin = Math.max(0, minDistance);
@@ -154,16 +150,18 @@ export function createSpatialTrack({
     const normalized = 1 - (clamped - safeMin) / (safeMax - safeMin);
     const target = Math.max(0, Math.min(1, normalized));
     const now = ctx.currentTime || 0;
+    const nextValue = Math.pow(target, 1.5);
     try {
       gain.gain.cancelScheduledValues(now);
-      gain.gain.linearRampToValueAtTime(Math.pow(target, 1.5), now + 0.25);
+      gain.gain.linearRampToValueAtTime(nextValue, now + 0.25);
     } catch (error) {
-      gain.gain.value = target;
+      gain.gain.value = nextValue;
     }
   }
 
   async function unlock() {
     if (disabled) return;
+    await loadBuffer();
     if (ctx.state === "suspended") {
       try {
         await ctx.resume();
@@ -171,7 +169,7 @@ export function createSpatialTrack({
         console.warn("Unable to resume spatial track", error);
       }
     }
-    await ensureSource();
+    tryStartSource();
   }
 
   return {

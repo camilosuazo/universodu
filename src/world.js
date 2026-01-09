@@ -30,7 +30,7 @@ function tagLabel(tag) {
 
 const PRIEST_TRACK_URL =
   (typeof import.meta !== "undefined" && import.meta.env?.VITE_PRIEST_TRACK) ||
-  "/music/sacerdote-theme.mp3";
+  "/music/sacerdote-theme.wav";
 
 const DAY_STAGES = {
   amanecer: {

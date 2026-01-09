@@ -107,7 +107,7 @@ En Vercel únicamente debes definir la variable `OPENAI_API_KEY` en Project Sett
 ## Música ceremonial y guardián
 
 - UniversoDú incluye un sacerdote permanente dentro del mundo (`world.js`). Cuando te acercas a él, reproduce música espacial que se atenúa según la distancia.
-- Los audios viven en el backend estático (carpeta `public/music`). Por defecto el motor busca `/music/sacerdote-theme.mp3`. Coloca tu archivo ahí con ese nombre o usa la variable `VITE_PRIEST_TRACK` para apuntar a otra ruta.
+- Los audios viven en el backend estático (carpeta `public/music`). El proyecto trae un ejemplo (`sacerdote-theme.wav`) que se sirve desde `/music/sacerdote-theme.wav`. Coloca tu archivo ahí con ese nombre o usa la variable `VITE_PRIEST_TRACK` para apuntar a otra ruta (MP3/WAV/OGG).
 - Puedes añadir más canciones dejando varios archivos en esa carpeta. Vite copia `public/` directamente al build final, así que basta con desplegar nuevamente para que estén disponibles.
 
 ## Personalizar / desplegar el endpoint IA en Vercel

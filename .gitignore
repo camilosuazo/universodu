@@ -2,3 +2,5 @@ node_modules
 .DS_Store
 dist
 .env
+public/music/*.mp3
+public/music/*.ogg

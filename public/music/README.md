@@ -2,8 +2,8 @@
 
 Coloca aquí los archivos de audio que quieras que el sacerdote reproduzca.
 
-- El motor busca por defecto `sacerdote-theme.mp3` dentro de esta carpeta y lo sirve desde el backend (`/music/sacerdote-theme.mp3`).
-- Puedes cambiar el archivo configurando la variable `VITE_PRIEST_TRACK` (por ejemplo `VITE_PRIEST_TRACK=/music/mi-cancion.mp3` en tu `.env` o en Vercel).
-- Asegúrate de usar formatos compatibles con los navegadores (MP3, OGG, WAV). Vite copiará esta carpeta tal cual al build final.
+- El motor incluye un tema base `sacerdote-theme.wav`. Si dejas este mismo nombre, se servirá desde `/music/sacerdote-theme.wav`.
+- Puedes reemplazarlo por cualquier otro archivo o apuntar a uno distinto configurando la variable `VITE_PRIEST_TRACK` (ej. `VITE_PRIEST_TRACK=/music/mi-cancion.mp3`).
+- Usa formatos compatibles (WAV, MP3, OGG). Vite copia `public/` directo al build, así que todo lo que guardes aquí quedará disponible en producción.
 
-Simplemente arrastra la canción a este directorio, vuelve a desplegar y el sacerdote la usará automáticamente.
+Arrastra tu canción a esta carpeta, vuelve a compilar/desplegar y el sacerdote la usará automáticamente cuando alguien se acerque.
