@@ -12,7 +12,7 @@ const ALLOWED_TAGS = new Set([
 function withCors(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization,HTTP-Referer,X-Title");
 }
 
 export default async function handler(req, res) {
@@ -50,6 +50,7 @@ export default async function handler(req, res) {
 
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
+    console.error("OPENROUTER_API_KEY missing");
     res.status(500).json({ error: "OPENROUTER_API_KEY no configurada" });
     return;
   }
@@ -120,6 +121,6 @@ export default async function handler(req, res) {
     });
   } catch (error) {
     console.error("IA endpoint error", error);
-    res.status(500).json({ error: "Fallo al contactar OpenRouter" });
+    res.status(500).json({ error: "Fallo al contactar OpenRouter", detail: error?.message || "unknown" });
   }
 }
