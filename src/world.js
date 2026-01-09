@@ -33,7 +33,7 @@ const BASE_URL =
 const PRIEST_TRACK_URL =
   (typeof window !== "undefined" && window.UNIVERSODU_PRIEST_TRACK) ||
   (typeof import.meta !== "undefined" && import.meta.env?.VITE_PRIEST_TRACK) ||
-  resolveAssetUrl(`${BASE_URL}music/sacerdote-theme.mp3`);
+  withBasePath("/music/sacerdote-theme.mp3");
 
 const DAY_STAGES = {
   amanecer: {
@@ -1471,18 +1471,17 @@ function readNumber(value, fallback) {
   return fallback;
 }
 
-function resolveAssetUrl(path) {
-  if (!path) return path;
-  try {
-    const normalized =
-      path.startsWith("http") || path.startsWith("//")
-        ? path
-        : `${path}`.replace(/\/{2,}/g, "/");
-    const origin =
-      typeof window !== "undefined" && window.location ? window.location.origin : "/";
-    const url = new URL(normalized, origin);
-    return url.pathname + url.search + url.hash;
-  } catch (error) {
-    return path;
+function withBasePath(assetPath) {
+  if (!assetPath) return assetPath;
+  if (assetPath.startsWith("http://") || assetPath.startsWith("https://") || assetPath.startsWith("//")) {
+    return assetPath;
   }
+  const cleanedBase = BASE_URL.endsWith("/")
+    ? BASE_URL.slice(0, -1)
+    : BASE_URL;
+  const normalized =
+    assetPath.startsWith("/") || !cleanedBase
+      ? assetPath
+      : `/${assetPath}`;
+  return `${cleanedBase}${normalized}`;
 }
