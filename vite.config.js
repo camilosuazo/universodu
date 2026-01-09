@@ -1,7 +1,7 @@
 import { defineConfig } from "vite";
 
-const repoName = "universodu";
+const basePath = process.env.BASE_PATH || "/";
 
 export default defineConfig({
-  base: `/${repoName}/`,
+  base: basePath,
 });

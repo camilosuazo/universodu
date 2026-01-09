@@ -24,7 +24,7 @@ jobs:
           node-version: "20"
           cache: "npm"
       - run: npm install
-      - run: npm run build
+      - run: BASE_PATH=/universodu npm run build
       - uses: actions/upload-pages-artifact@v2
         with:
           path: dist

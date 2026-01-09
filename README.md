@@ -57,15 +57,42 @@ El HTML heredado vivía dentro de Django y tenía el módulo Three.js incrustado
    - `actions/upload-pages-artifact`
    - `actions/deploy-pages`
 3. En la configuración de Pages de tu repo, selecciona “GitHub Actions” como fuente si aún no lo está.
-4. La configuración de Vite (`vite.config.js`) usa `base: "/universodu/"`, así que la web quedará servida en `https://<tu-usuario>.github.io/universodu/`.
+4. La configuración de Vite usa la variable `BASE_PATH`. El workflow ya ejecuta `BASE_PATH=/universodu npm run build`, así que la web quedará servida en `https://<tu-usuario>.github.io/universodu/`.
+
+Si compilas localmente para GitHub Pages, ejecuta manualmente:
+```bash
+BASE_PATH=/universodu npm run build
+```
+Para otros despliegues (por ejemplo Vercel) deja `BASE_PATH` vacío y todo se servirá desde la raíz (`/`).
 
 ## Modo IA (experimental)
 
-- El panel tiene un switch **Modo IA**. Al activarlo, el frontend intentará llamar al endpoint configurado (por defecto `/api/generate`).
+- El panel tiene un switch **Modo IA**. Al activarlo, el frontend intenta llamar al endpoint configurado (por defecto `/api/generate`).
 - Define tu endpoint así:
-  - Localmente: crea un proxy o un worker que corra en `npm run dev` (por ejemplo, un servidor en `localhost:8787` y usa `VITE_AI_ENDPOINT=http://localhost:8787/generate npm run dev`).
-  - Producción (GitHub Pages): apunta `VITE_AI_ENDPOINT` a una función serverless (Cloudflare Workers, Vercel, Netlify) que reciba `{ prompt: string }` y responda `{ summary: string, tags: string[] }`. **Nunca** expongas API keys en el frontend; tu endpoint debe manejar la autenticación y filtrado.
+  - Localmente: levanta la función serverless (por ejemplo `vercel dev`) y corre `VITE_AI_ENDPOINT=http://127.0.0.1:3000/api/generate npm run dev` para que el frontend apunte ahí.
+  - Producción: usa una función serverless (Cloudflare Workers, Vercel, Netlify) que reciba `{ prompt: string }` y responda `{ summary: string, tags: string[] }`. **Nunca** expongas API keys en el frontend; el backend debe autenticarse contra OpenAI u otro proveedor.
 - Si la llamada falla o no entrega tags válidos, la UI lanza un aviso no intrusivo y vuelve automáticamente al parser heurístico.
+
+### Endpoint de referencia (`/api/generate`)
+
+Este repo incluye `api/generate.js`, lista para desplegarse en Vercel como función serverless. Hace lo siguiente:
+
+1. Recibe `POST` con `{ prompt }`.
+2. Usa la variable de entorno `OPENAI_API_KEY` para invocar `gpt-4o-mini` y pedir un JSON con `summary` + `tags`.
+3. Sanitiza las etiquetas para que solo existan los valores admitidos por el frontend (cacti, rocks, oasis, ruins, crystals, mirage, fireflies, totems).
+4. Devuelve `{ summary, tags }` o un error descriptivo.
+
+Para usarla en local:
+
+```bash
+npm install -g vercel          # una vez
+vercel dev                     # expone http://127.0.0.1:3000/api/generate
+
+# En otra terminal
+VITE_AI_ENDPOINT=http://127.0.0.1:3000/api/generate npm run dev
+```
+
+En Vercel únicamente debes definir la variable `OPENAI_API_KEY` en Project Settings (ver sección final).
 
 ## Robustez y UX
 
@@ -75,13 +102,25 @@ El HTML heredado vivía dentro de Django y tenía el módulo Three.js incrustado
 - File protocol: overlay con instrucciones para correr un servidor local.
 - Registro de prompts: máximo 6 entradas visibles.
 
-## Personalizar el endpoint IA
+## Personalizar / desplegar el endpoint IA en Vercel
 
-1. Crea un servicio (Cloudflare Worker / Vercel Function) que procese el prompt y devuelva JSON `{"summary": "texto", "tags": ["cacti", "oasis", ...]}`.
-2. Durante el build o dev, define la variable `VITE_AI_ENDPOINT`:
+1. **Importa el repo en Vercel** (botón “New Project” → selecciona `universodu`). El framework detectado debe ser “Vite”.
+2. **Variables de entorno** (Project Settings → Environment Variables):
+   - `OPENAI_API_KEY` → tu clave secreta de OpenAI (solo en Vercel, nunca en el repo).
+   - `VITE_AI_ENDPOINT` → `https://<tu-proyecto>.vercel.app/api/generate` (ajusta `<tu-proyecto>` al subdominio que uses).
+3. Guarda los cambios y despliega. Vercel ejecutará:
    ```bash
-   VITE_AI_ENDPOINT=https://tu-funcion.example.com/api/generate npm run build
+   npm install
+   npm run build   # genera dist/
    ```
-3. Publica tu worker con las credenciales del proveedor (Mantén las API keys ahí, nunca en este repo).
+   y servirá `dist/` como sitio estático junto a la función `/api/generate`. No definas `BASE_PATH` en Vercel (se usa `/`).
 
-Con eso tienes UniversoDú listo para correr localmente, funcionar sin frameworks server-side y desplegarse en GitHub Pages.
+### Cómo queda el flujo
+
+- **Frontend (UniversoDú)** → lee `VITE_AI_ENDPOINT` y hace `fetch` cuando activas “Modo IA”.
+- **Backend (Vercel Function)** → recibe el prompt y llama a OpenAI con `OPENAI_API_KEY`. Puedes cambiar el modelo o el prompt del sistema editando `api/generate.js`.
+- **Seguridad** → tu clave solo vive en Vercel; si necesitas rotarla, hazlo desde su panel y vuelve a desplegar.
+
+Si prefieres otro proveedor (Cloudflare Worker, Netlify, Fly, etc.), sigue la misma idea: expone un endpoint HTTPS que hable con OpenAI usando variables del servidor y configura `VITE_AI_ENDPOINT` apuntándolo a ese dominio.
+
+Con eso tienes UniversoDú listo para correr localmente, funcionar sin frameworks server-side, desplegarse en GitHub Pages y consumir IA real cuando esté disponible.
