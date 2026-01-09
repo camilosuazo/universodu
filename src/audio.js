@@ -77,13 +77,22 @@ export function createAmbientAudio() {
 
 export function createSpatialTrack({
   url,
+  sources = [],
   loop = true,
   minDistance = 8,
   maxDistance = 90,
 } = {}) {
   const AudioContext =
     typeof window !== "undefined" && (window.AudioContext || window.webkitAudioContext);
-  if (!AudioContext || !url) return null;
+  const playlist = [];
+  if (url) playlist.push(url);
+  sources.forEach((entry) => {
+    if (!entry) return;
+    if (!playlist.includes(entry)) {
+      playlist.push(entry);
+    }
+  });
+  if (!AudioContext || !playlist.length) return null;
   const ctx = new AudioContext();
   const gain = ctx.createGain();
   gain.gain.value = 0;
@@ -93,32 +102,32 @@ export function createSpatialTrack({
   let source = null;
   let loading = null;
   let disabled = false;
+  let currentIndex = 0;
 
   async function loadBuffer() {
     if (buffer || loading || disabled) return loading;
-    loading = fetch(url)
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(`Track unavailable at ${url}`);
-        }
-        return response.arrayBuffer();
-      })
-      .then(
-        (arrayBuffer) =>
-          new Promise((resolve, reject) => {
+    loading = (async () => {
+      while (currentIndex < playlist.length && !buffer) {
+        const trackUrl = playlist[currentIndex];
+        try {
+          const response = await fetch(trackUrl, { cache: "force-cache" });
+          if (!response.ok) {
+            throw new Error(`Track unavailable at ${trackUrl}`);
+          }
+          const arrayBuffer = await response.arrayBuffer();
+          buffer = await new Promise((resolve, reject) => {
             ctx.decodeAudioData(arrayBuffer, resolve, reject);
-          })
-      )
-      .then((decoded) => {
-        buffer = decoded;
-      })
-      .catch((error) => {
-        console.error("Unable to load spatial track", error);
+          });
+        } catch (error) {
+          console.warn(`Unable to load spatial track ${trackUrl}`, error);
+          currentIndex += 1;
+        }
+      }
+      if (!buffer) {
         disabled = true;
-      })
-      .finally(() => {
-        loading = null;
-      });
+      }
+      loading = null;
+    })();
     return loading;
   }
 
@@ -162,6 +171,7 @@ export function createSpatialTrack({
   async function unlock() {
     if (disabled) return;
     await loadBuffer();
+    if (disabled || !buffer) return;
     if (ctx.state === "suspended") {
       try {
         await ctx.resume();

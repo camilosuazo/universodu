@@ -28,9 +28,11 @@ function tagLabel(tag) {
   }
 }
 
-const PRIEST_TRACK_URL =
-  (typeof import.meta !== "undefined" && import.meta.env?.VITE_PRIEST_TRACK) ||
-  "/music/sacerdote-theme.wav";
+const PRIEST_TRACK_SOURCES = [
+  (typeof import.meta !== "undefined" && import.meta.env?.VITE_PRIEST_TRACK) || null,
+  "/music/sacerdote-theme.mp3",
+  "/music/sacerdote-theme.wav",
+].filter(Boolean);
 
 const DAY_STAGES = {
   amanecer: {
@@ -140,7 +142,7 @@ export function createWorld(canvas, { onPointerLockChange, onPointerLockError })
   const priestShrine = createPriestShrine({
     scene,
     camera,
-    trackUrl: PRIEST_TRACK_URL,
+    trackSources: PRIEST_TRACK_SOURCES,
   });
 
   const promptGroup = new THREE.Group();
@@ -955,7 +957,7 @@ function disposeObject(obj) {
   });
 }
 
-function createPriestShrine({ scene, camera, trackUrl }) {
+function createPriestShrine({ scene, camera, trackSources }) {
   const shrine = new THREE.Group();
   const baseMat = new THREE.MeshStandardMaterial({
     color: 0x2e1f32,
@@ -1007,7 +1009,7 @@ function createPriestShrine({ scene, camera, trackUrl }) {
   scene.add(shrine);
 
   const spatialTrack = createSpatialTrack({
-    url: trackUrl,
+    sources: trackSources,
     minDistance: 8,
     maxDistance: 110,
   });
