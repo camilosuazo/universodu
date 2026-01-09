@@ -79,7 +79,7 @@ export default async function handler(req, res) {
       method: "POST",
       headers,
       body: JSON.stringify({
-        model: process.env.OPENROUTER_MODEL || "nousresearch/hermes-3-llama-3.1-8b",
+        model: process.env.OPENROUTER_MODEL || "meta-llama/llama-3.1-8b-instruct",
         temperature: 0.4,
         messages: [
           {

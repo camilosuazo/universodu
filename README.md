@@ -78,7 +78,7 @@ Para otros despliegues (por ejemplo Vercel) deja `BASE_PATH` vacío y todo se se
 Este repo incluye `api/generate.js`, lista para desplegarse en Vercel como función serverless. Hace lo siguiente:
 
 1. Recibe `POST` con `{ prompt }`.
-2. Usa la variable de entorno `OPENROUTER_API_KEY` para invocar el modelo (por defecto `nousresearch/hermes-3-llama-3.1-8b`, configurable con `OPENROUTER_MODEL`) y pedir un JSON con `summary` + `tags`.
+2. Usa la variable de entorno `OPENROUTER_API_KEY` para invocar el modelo (por defecto `meta-llama/llama-3.1-8b-instruct`, configurable con `OPENROUTER_MODEL`) y pedir un JSON con `summary` + `tags`.
 3. Sanitiza las etiquetas para que solo existan los valores admitidos por el frontend (cacti, rocks, oasis, ruins, crystals, mirage, fireflies, totems).
 4. Devuelve `{ summary, tags }` o un error descriptivo.
 
