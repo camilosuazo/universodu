@@ -94,6 +94,8 @@ VITE_AI_ENDPOINT=http://127.0.0.1:3000/api/generate npm run dev
 
 En Vercel únicamente debes definir la variable `OPENAI_API_KEY` en Project Settings (ver sección final).
 
+> Nota: la función maneja CORS y responde OPTIONS, así que el frontend puede llamarla desde cualquier origen siempre que `OPENAI_API_KEY` esté configurada.
+
 ## Robustez y UX
 
 - Detección de WebGL: muestra overlay de incompatibilidad si el navegador no soporta WebGL.
