@@ -159,8 +159,8 @@ export function createWorld(canvas, { onPointerLockChange, onPointerLockError })
 
   function requestPointerLock() {
     try {
-      controls.lock();
       priestShrine?.unlockAudio?.();
+      controls.lock();
     } catch (error) {
       onPointerLockError?.("Pointer Lock no disponible en este navegador.");
     }
