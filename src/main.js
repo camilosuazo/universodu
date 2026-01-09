@@ -56,6 +56,29 @@ if (!isWebGLAvailable()) {
 
 let world;
 let aiEnabled = false;
+const ALLOWED_TAGS = new Set(["cacti", "rocks", "oasis", "ruins", "crystals", "mirage", "fireflies", "totems"]);
+
+function normalizeTags(list) {
+  const cleaned = new Set();
+  list.forEach((tag) => {
+    if (!tag) return;
+    const normalized = tag.toString().toLowerCase().trim();
+    if (ALLOWED_TAGS.has(normalized)) {
+      cleaned.add(normalized);
+      return;
+    }
+    if (normalized.includes("oasis")) cleaned.add("oasis");
+    else if (normalized.includes("cact")) cleaned.add("cacti");
+    else if (normalized.includes("ruin") || normalized.includes("templo")) cleaned.add("ruins");
+    else if (normalized.includes("cristal") || normalized.includes("crystal")) cleaned.add("crystals");
+    else if (normalized.includes("luci") || normalized.includes("fuego")) cleaned.add("fireflies");
+    else if (normalized.includes("totem") || normalized.includes("escultura")) cleaned.add("totems");
+    else if (normalized.includes("roca") || normalized.includes("piedra")) cleaned.add("rocks");
+    else if (normalized.includes("espej")) cleaned.add("mirage");
+  });
+  return cleaned;
+}
+
 
 function initWorld() {
   try {
@@ -103,10 +126,11 @@ async function handlePrompt(prompt) {
       const data = await response.json();
       const candidateTags = Array.isArray(data?.tags) ? data.tags : [];
       const candidateSummary = data?.summary;
-      candidateTags.forEach((tag) => tags.add(tag));
+      const sanitized = normalizeTags(candidateTags);
+      sanitized.forEach((tag) => tags.add(tag));
       summary = candidateSummary || summary;
       if (!tags.size) {
-        throw new Error("La IA no devolvió instrucciones");
+        throw new Error("La IA no devolvió etiquetas válidas");
       }
       if (!summary) {
         summary = Array.from(tags).map((tag) => tagLabel(tag)).join(" · ");
