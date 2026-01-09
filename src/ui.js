@@ -9,6 +9,7 @@ export function initUI({
   onToggleAudio,
 }) {
   const enterButton = document.getElementById("enter-button");
+  const enterButtonLabel = document.getElementById("enter-button-label");
   const promptForm = document.getElementById("prompt-form");
   const promptInput = document.getElementById("prompt-input");
   const promptLog = document.getElementById("prompt-log");
@@ -99,7 +100,11 @@ export function initUI({
 
   function setEnterButtonState(label, disabled) {
     if (!enterButton) return;
-    enterButton.textContent = label;
+    if (enterButtonLabel) {
+      enterButtonLabel.textContent = label;
+    } else {
+      enterButton.textContent = label;
+    }
     enterButton.disabled = disabled;
     enterButton.style.opacity = disabled ? "0.7" : "1";
   }

@@ -7,6 +7,37 @@ const ALLOWED_TAGS = new Set([
   "mirage",
   "fireflies",
   "totems",
+  "structures",
+  "flora",
+  "portals",
+  "storm",
+  "sentinels",
+  "creatures",
+  "nomads",
+]);
+
+const ENTITY_TYPES = new Set([
+  "structure",
+  "tower",
+  "tree",
+  "oasis",
+  "water",
+  "crystal",
+  "portal",
+  "fireflies",
+  "totem",
+  "rock",
+  "dune",
+  "bridge",
+  "monolith",
+  "flora",
+  "creature",
+  "sentinel",
+  "cacti",
+  "ruins",
+  "mirage",
+  "nomad",
+  "storm",
 ]);
 
 function withCors(res) {
@@ -85,7 +116,7 @@ export default async function handler(req, res) {
           {
             role: "system",
             content:
-              "Eres el motor creativo de UniversoDú, un desierto inmersivo. Recibirás prompts breves y debes responder solo JSON con dos campos: summary (string concisa en español) y tags (array con 1-3 valores del siguiente listado: cacti, rocks, oasis, ruins, crystals, mirage, fireflies, totems). Usa únicamente esas etiquetas y describe el paisaje que propones en summary.",
+              "Eres el motor creativo de UniversoDú, un desierto inmersivo generado en Three.js. Recibirás descripciones breves y debes responder SOLO JSON con tres campos: summary (string concisa en español), tags (array con 1-4 valores del listado: cacti, rocks, oasis, ruins, crystals, mirage, fireflies, totems, structures, flora, portals, storm, sentinels, creatures, nomads) y entities (array). Cada elemento de entities debe ser un objeto con al menos: entity (uno de: structure, tower, tree, oasis, water, crystal, portal, fireflies, totem, rock, dune, bridge, monolith, flora, creature, sentinel, cacti, ruins, mirage, nomad, storm) y quantity (1-8). Puedes añadir campos opcionales como color (hex o nombre CSS), size (small, medium, large), floors, height, width, radius, spread o detail para ayudar al motor 3D a construir el objeto. Usa summary para describir el paisaje en una frase. No incluyas texto extra fuera del JSON.",
           },
           {
             role: "user",
@@ -106,11 +137,15 @@ export default async function handler(req, res) {
 
     let summary = "";
     let tags = [];
+    let entities = [];
     try {
       const cleaned = cleanModelOutput(raw);
       const parsed = JSON.parse(cleaned);
       summary = typeof parsed.summary === "string" ? parsed.summary : "";
       tags = Array.isArray(parsed.tags) ? parsed.tags : [];
+      if (Array.isArray(parsed.entities)) {
+        entities = parsed.entities;
+      }
     } catch (error) {
       summary = raw.slice(0, 200);
     }
@@ -123,9 +158,12 @@ export default async function handler(req, res) {
       sanitizedTags.push("mirage");
     }
 
+    const sanitizedEntities = sanitizeEntities(entities);
+
     res.status(200).json({
       summary: summary || "Paisaje sugerido por IA",
       tags: sanitizedTags,
+      entities: sanitizedEntities,
     });
   } catch (error) {
     console.error("IA endpoint error", error);
@@ -148,4 +186,127 @@ function cleanModelOutput(text) {
     cleaned = cleaned.slice(firstBrace, lastBrace + 1);
   }
   return cleaned;
+}
+
+function sanitizeEntities(rawEntities) {
+  if (!Array.isArray(rawEntities)) return [];
+  const sanitized = [];
+  rawEntities.forEach((entry) => {
+    if (!entry || typeof entry !== "object") return;
+    const rawType =
+      entry.entity ||
+      entry.type ||
+      entry.kind ||
+      entry.target ||
+      entry.label;
+    const normalizedType = typeof rawType === "string" ? normalizeEntityType(rawType) : "";
+    if (!ENTITY_TYPES.has(normalizedType)) return;
+    const quantity = clampNumber(parseNumber(entry.quantity ?? entry.count ?? 1) || 1, 1, 10);
+    const item = { type: normalizedType, quantity };
+
+    const sizeStr = normalizeSize(entry.size);
+    if (sizeStr) item.size = sizeStr;
+
+    const scalar = parseNumber(entry.scale);
+    if (typeof scalar === "number") {
+      item.scale = clampNumber(scalar, 0.3, 4);
+    }
+
+    const color = sanitizeColor(entry.color ?? entry.tint ?? entry.material ?? entry.hue);
+    if (color) item.color = color;
+
+    const trunk = sanitizeColor(entry.trunkColor ?? entry.barkColor);
+    if (trunk) item.trunkColor = trunk;
+
+    const foliage = sanitizeColor(entry.foliageColor ?? entry.leafColor ?? entry.secondaryColor);
+    if (foliage) item.foliageColor = foliage;
+
+    const spread = parseNumber(entry.spread ?? entry.range);
+    if (typeof spread === "number") item.spread = clampNumber(spread, 0, 400);
+
+    const detail = typeof entry.detail === "string" ? entry.detail.trim() : "";
+    if (detail) item.detail = detail.slice(0, 200);
+
+    ["floors", "height", "width", "depth", "radius", "length", "thickness"].forEach((key) => {
+      const value = parseNumber(entry[key] ?? entry.attributes?.[key]);
+      if (typeof value === "number") {
+        item[key] = clampNumber(value, 0.1, 400);
+      }
+    });
+
+    sanitized.push(item);
+  });
+  return sanitized;
+}
+
+function normalizeSize(value) {
+  if (typeof value !== "string") return "";
+  const lower = value.toLowerCase().trim();
+  if (["tiny", "pequeño", "pequeno", "small", "mini"].includes(lower)) return "small";
+  if (["medium", "mediano", "media"].includes(lower)) return "medium";
+  if (["huge", "gigantic", "large", "enorme", "gran", "grande", "massive"].includes(lower)) return "large";
+  return "";
+}
+
+function sanitizeColor(value) {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim().slice(0, 24);
+  if (!trimmed) return "";
+  return trimmed;
+}
+
+function parseNumber(value) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const num = Number(value.trim().replace(/,/g, "."));
+    if (Number.isFinite(num)) return num;
+  }
+  return null;
+}
+
+function clampNumber(value, min, max) {
+  if (typeof value !== "number" || Number.isNaN(value)) return min;
+  return Math.max(min, Math.min(max, value));
+}
+
+const ENTITY_ALIAS_MAP = {
+  structures: "structure",
+  building: "structure",
+  buildings: "structure",
+  towers: "tower",
+  trees: "tree",
+  cactus: "cacti",
+  cactuses: "cacti",
+  oasis: "oasis",
+  waters: "water",
+  lakes: "water",
+  crystals: "crystal",
+  portals: "portal",
+  gateways: "portal",
+  firefly: "fireflies",
+  fireflies: "fireflies",
+  totems: "totem",
+  rocks: "rock",
+  stones: "rock",
+  dunes: "dune",
+  bridges: "bridge",
+  monoliths: "monolith",
+  florae: "flora",
+  plants: "flora",
+  creatures: "creature",
+  sentinels: "sentinel",
+  guardians: "sentinel",
+  ruins: "ruins",
+  temples: "ruins",
+  mirages: "mirage",
+  visions: "mirage",
+  nomads: "nomad",
+  caravans: "nomad",
+  storms: "storm",
+};
+
+function normalizeEntityType(value) {
+  if (typeof value !== "string") return "";
+  const clean = value.toLowerCase().trim();
+  return ENTITY_ALIAS_MAP[clean] || clean;
 }

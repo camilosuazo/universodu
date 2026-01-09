@@ -121,13 +121,45 @@
       width: 100%;
     }
     .enter-button {
+      position: fixed;
+      bottom: clamp(0.85rem, 2.5vh, 1.4rem);
+      left: clamp(0.85rem, 2vw, 1.4rem);
+      z-index: 10;
       border: none;
       border-radius: 999px;
-      padding: 0.55rem 1rem;
-      background: var(--accent);
+      padding: 0.45rem 0.95rem;
+      background: rgba(255, 183, 3, 0.95);
       color: var(--night);
       font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 0.78rem;
       cursor: pointer;
+      box-shadow: 0 12px 30px rgba(0,0,0,0.35);
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      pointer-events: auto;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .enter-button:active {
+      transform: scale(0.97);
+      box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+    }
+    .enter-button span {
+      display: inline-block;
+      font-size: 0.7rem;
+      opacity: 0.85;
+    }
+    .enter-button__hint {
+      opacity: 0.55;
+      font-size: 0.62rem;
+      letter-spacing: 0.08em;
+    }
+    .enter-button:disabled {
+      cursor: not-allowed;
+      opacity: 0.7;
+      box-shadow: none;
     }
     .panel-card {
       position: absolute;
@@ -263,6 +295,13 @@
       .look-zone {
         display: block;
       }
+      .enter-button {
+        bottom: calc(4.4rem + env(safe-area-inset-bottom, 0px));
+        left: auto;
+        right: clamp(0.65rem, 2vw, 1.2rem);
+        font-size: 0.85rem;
+        padding: 0.55rem 1.1rem;
+      }
     }
     @media (max-width: 540px) {
       .panel-card { border-radius: 1rem; }
@@ -294,12 +333,15 @@
               <option value="noche">Noche</option>
             </select>
           </div>
-          <button class="enter-button" id="enter-button">Entrar al Universo</button>
           <button class="secondary-button" id="audio-toggle">Activar música</button>
           <p id="lock-hint" style="margin:0;font-size:0.7rem;letter-spacing:0.08em;text-transform:uppercase;color:var(--accent);">Cursor libre</p>
         </div>
       </section>
     </div>
+    <button class="enter-button" id="enter-button">
+      <span id="enter-button-label">Entrar</span>
+      <span class="enter-button__hint">Universo</span>
+    </button>
     <section class="panel-card" id="control-panel">
       <div class="panel-header">
         <strong>Modela el paisaje</strong>

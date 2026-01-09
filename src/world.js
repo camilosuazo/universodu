@@ -4,34 +4,6 @@ import { PointerLockControls } from "three/addons/controls/PointerLockControls.j
 const MAX_PROMPT_OBJECTS = 120;
 const WALK_SPEED = 42;
 
-const heuristicsTable = [
-  { regex: /(cactus|cactaceas|cactáceas|nopal|suculenta)/i, tag: "cacti" },
-  { regex: /(roca|piedra|meteorito|monolito|cantil)/i, tag: "rocks" },
-  { regex: /(oasis|agua|laguna|lago|rio|río)/i, tag: "oasis" },
-  { regex: /(ruina|templo|pirámide|piramide|ciudad|obelisco)/i, tag: "ruins" },
-  { regex: /(cristal|neon|neón|brillo|luz|aurora)/i, tag: "crystals" },
-  { regex: /(bruma|niebla|espejismo|mirage|viento)/i, tag: "mirage" },
-  { regex: /(luciernaga|luciérnaga|estrella|cielo|brillar)/i, tag: "fireflies" },
-  { regex: /(totem|totémico|escultura|tótem|arte)/i, tag: "totems" },
-];
-
-export function parsePromptHeuristics(prompt) {
-  const tags = new Set();
-  heuristicsTable.forEach((entry) => {
-    if (entry.regex.test(prompt)) {
-      tags.add(entry.tag);
-    }
-  });
-  if (!tags.size) {
-    tags.add("mirage");
-    tags.add("rocks");
-  }
-  const summary = Array.from(tags)
-    .map((tag) => tagLabel(tag))
-    .join(" · ");
-  return { tags, summary };
-}
-
 function tagLabel(tag) {
   switch (tag) {
     case "cacti":
@@ -331,6 +303,30 @@ export function createWorld(canvas, { onPointerLockChange, onPointerLockError })
     return new THREE.Vector3(x, 0, z);
   }
 
+  function clampInstructionQuantity(value) {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return 1;
+    return THREE.MathUtils.clamp(Math.round(num), 1, 8);
+  }
+
+  function instructionDistanceRange(spec = {}) {
+    const baseMin = 35;
+    const baseMax = 160;
+    const spread = Number(spec.spread);
+    const sizeScale = specSizeToScale(spec.size, spec.scale);
+    const min = THREE.MathUtils.clamp(
+      baseMin * Math.max(0.5, Math.min(1.4, sizeScale)),
+      20,
+      240
+    );
+    const max = THREE.MathUtils.clamp(
+      baseMax * Math.max(0.8, Math.min(1.6, sizeScale)) + (Number.isFinite(spread) ? spread : 0),
+      min + 10,
+      420
+    );
+    return [min, max];
+  }
+
   function spawnHandlers(tag) {
     switch (tag) {
       case "cacti":
@@ -387,6 +383,59 @@ export function createWorld(canvas, { onPointerLockChange, onPointerLockError })
     tags.forEach((tag) => spawnHandlers(tag));
   }
 
+  const ENTITY_SPAWNERS = {
+    structure: spawnInstructionStructure,
+    tower: spawnInstructionStructure,
+    tree: spawnInstructionTree,
+    oasis: spawnInstructionOasis,
+    water: spawnInstructionWater,
+    crystal: spawnInstructionCrystal,
+    portal: spawnInstructionPortal,
+    fireflies: spawnInstructionFireflies,
+    totem: spawnInstructionTotem,
+    rock: spawnInstructionRock,
+    dune: spawnInstructionDune,
+    bridge: spawnInstructionBridge,
+    monolith: spawnInstructionMonolith,
+    flora: spawnInstructionFlora,
+    creature: spawnInstructionCreature,
+    sentinel: spawnInstructionSentinel,
+    cacti: spawnInstructionCacti,
+    ruins: spawnInstructionRuins,
+    mirage: spawnInstructionMirage,
+    nomad: spawnInstructionNomads,
+    storm: spawnInstructionStorm,
+  };
+
+  function spawnFromEntities(entities = []) {
+    entities.forEach((entity) => {
+      if (!entity || typeof entity !== "object") return;
+      const type = typeof entity.type === "string" ? entity.type.toLowerCase() : "";
+      const handler = ENTITY_SPAWNERS[type];
+      if (!handler) return;
+      const quantity = clampInstructionQuantity(entity.quantity);
+      for (let i = 0; i < quantity; i += 1) {
+        const [minDist, maxDist] = instructionDistanceRange(entity);
+        const center = randomAroundCamera(minDist, maxDist);
+        const object = handler(center, entity);
+        if (object) {
+          registerPromptObject(object);
+        }
+      }
+    });
+  }
+
+  function applyPromptPlan(plan) {
+    if (plan?.tags instanceof Set) {
+      spawnFromTags(plan.tags);
+    } else if (Array.isArray(plan?.tags)) {
+      spawnFromTags(new Set(plan.tags));
+    }
+    if (Array.isArray(plan?.entities) && plan.entities.length) {
+      spawnFromEntities(plan.entities);
+    }
+  }
+
   function setDayStage(stage) {
     const settings = DAY_STAGES[stage] || DAY_STAGES.amanecer;
     scene.background.set(settings.skyColor);
@@ -404,9 +453,10 @@ export function createWorld(canvas, { onPointerLockChange, onPointerLockError })
   return {
     requestPointerLock,
     spawnFromTags,
+    spawnFromEntities,
+    applyPromptPlan,
     resize,
     setDayStage,
-    parsePromptHeuristics,
   };
 }
 
@@ -890,4 +940,386 @@ function disposeObject(obj) {
       }
     }
   });
+}
+
+function spawnInstructionStructure(center, spec = {}) {
+  const group = new THREE.Group();
+  const scale = specSizeToScale(spec.size, spec.scale);
+  const floors = Math.max(1, Math.round(readNumber(spec.floors, readNumber(spec.height, 12) / 3.5) || 4));
+  const width = THREE.MathUtils.clamp(readNumber(spec.width, 12) * scale, 6, 80);
+  const depth = THREE.MathUtils.clamp(readNumber(spec.depth, width * 0.7), 6, 80);
+  const height = THREE.MathUtils.clamp(readNumber(spec.height, floors * 4.2) * scale, 8, 220);
+  const bodyColor = colorWithFallback(spec.color, 0xded7ff);
+
+  const building = new THREE.Mesh(
+    new THREE.BoxGeometry(width, height, depth),
+    new THREE.MeshStandardMaterial({
+      color: bodyColor,
+      emissive: bodyColor.clone().multiplyScalar(0.12),
+      metalness: 0.35,
+      roughness: 0.35,
+    })
+  );
+  building.castShadow = true;
+  building.position.y = height / 2;
+  group.add(building);
+
+  const roof = new THREE.Mesh(
+    new THREE.ConeGeometry(Math.max(2, width * 0.4), Math.max(2, height * 0.12), 5),
+    new THREE.MeshStandardMaterial({
+      color: bodyColor.clone().offsetHSL(0.05, 0.1, 0.15),
+      emissive: bodyColor.clone().multiplyScalar(0.2),
+      metalness: 0.45,
+      roughness: 0.2,
+    })
+  );
+  roof.position.y = height + roof.geometry.parameters.height / 2;
+  group.add(roof);
+
+  const windowGeo = new THREE.PlaneGeometry(1.4, 1.8);
+  const windowMat = new THREE.MeshBasicMaterial({
+    color: 0xfff7d6,
+    transparent: true,
+    opacity: 0.8,
+    side: THREE.DoubleSide,
+  });
+  const windowsPerSide = Math.min(6, Math.max(2, Math.round(width / 4)));
+  const windowSpacing = width / (windowsPerSide + 1);
+  for (let side = 0; side < 4; side += 1) {
+    for (let i = 0; i < windowsPerSide; i += 1) {
+      const pane = new THREE.Mesh(windowGeo, windowMat);
+      const offset = -width / 2 + windowSpacing * (i + 1);
+      pane.position.y = height * 0.5 * ((i % 2) + 0.4);
+      switch (side) {
+        case 0:
+          pane.position.set(offset, pane.position.y, depth / 2 + 0.01);
+          break;
+        case 1:
+          pane.position.set(offset, pane.position.y, -depth / 2 - 0.01);
+          pane.rotation.y = Math.PI;
+          break;
+        case 2:
+          pane.position.set(width / 2 + 0.01, pane.position.y, offset);
+          pane.rotation.y = Math.PI / 2;
+          break;
+        default:
+          pane.position.set(-width / 2 - 0.01, pane.position.y, offset);
+          pane.rotation.y = -Math.PI / 2;
+          break;
+      }
+      group.add(pane);
+    }
+  }
+
+  group.position.copy(center);
+  return group;
+}
+
+function spawnInstructionTree(center, spec = {}) {
+  const group = new THREE.Group();
+  const scale = specSizeToScale(spec.size, spec.scale);
+  const height = THREE.MathUtils.clamp(readNumber(spec.height, 10) * scale, 4, 60);
+  const trunkRadius = Math.max(0.4, height * 0.08);
+  const trunkMat = new THREE.MeshStandardMaterial({
+    color: colorWithFallback(spec.trunkColor || spec.barkColor, 0x8c5a33),
+    roughness: 0.8,
+    metalness: 0.05,
+  });
+  const trunk = new THREE.Mesh(
+    new THREE.CylinderGeometry(trunkRadius * 0.7, trunkRadius, height, 8),
+    trunkMat
+  );
+  trunk.castShadow = true;
+  trunk.position.y = height / 2;
+  group.add(trunk);
+
+  const canopyMat = new THREE.MeshStandardMaterial({
+    color: colorWithFallback(spec.color || spec.foliageColor, 0x47b07d),
+    emissive: colorWithFallback(spec.color || spec.foliageColor, 0x1b4c3a).multiplyScalar(0.18),
+  });
+  const canopyHeight = height * 0.6;
+  const canopy = new THREE.Mesh(new THREE.SphereGeometry(canopyHeight * 0.5, 18, 18), canopyMat);
+  canopy.position.y = height;
+  group.add(canopy);
+
+  const secondary = new THREE.Mesh(
+    new THREE.SphereGeometry(canopyHeight * 0.35, 16, 16),
+    canopyMat
+  );
+  secondary.position.set(canopyHeight * 0.3, height * 0.9, 0);
+  group.add(secondary);
+
+  group.position.copy(center);
+  return group;
+}
+
+function spawnInstructionWater(center, spec = {}) {
+  const group = new THREE.Group();
+  const radius = THREE.MathUtils.clamp(readNumber(spec.radius, spec.width || 16), 6, 220);
+  const waterMat = new THREE.MeshPhongMaterial({
+    color: colorWithFallback(spec.color, 0x58d8ec),
+    transparent: true,
+    opacity: 0.85,
+    shininess: 90,
+  });
+  const pool = new THREE.Mesh(new THREE.CircleGeometry(radius, 48), waterMat);
+  pool.rotation.x = -Math.PI / 2;
+  pool.position.y = 0.02;
+  group.add(pool);
+
+  const rim = new THREE.Mesh(
+    new THREE.RingGeometry(radius * 1.02, radius * 1.2, 48),
+    new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.18,
+      side: THREE.DoubleSide,
+    })
+  );
+  rim.rotation.x = -Math.PI / 2;
+  rim.position.y = 0.04;
+  group.add(rim);
+
+  group.position.copy(center);
+  return group;
+}
+
+function spawnInstructionOasis(center, spec = {}) {
+  const group = new THREE.Group();
+  const water = spawnInstructionWater(new THREE.Vector3(0, 0, 0), spec);
+  group.add(water);
+  const treeCount = THREE.MathUtils.clamp(readNumber(spec.trees, spec.count) || 3, 2, 6);
+  for (let i = 0; i < treeCount; i += 1) {
+    const angle = (i / treeCount) * Math.PI * 2;
+    const radius = readNumber(spec.radius, 16) * 1.1;
+    const treeCenter = new THREE.Vector3(
+      Math.cos(angle) * radius,
+      0,
+      Math.sin(angle) * radius
+    );
+    const tree = spawnInstructionTree(treeCenter, {
+      size: spec.size || "medium",
+      color: spec.foliageColor || spec.color,
+      trunkColor: spec.trunkColor,
+      height: readNumber(spec.height, 12) * 0.8,
+    });
+    group.add(tree);
+  }
+  group.position.copy(center);
+  return group;
+}
+
+function spawnInstructionCrystal(center, spec = {}) {
+  return spawnInstructionFromExisting(spawnCrystals, center, spec);
+}
+
+function spawnInstructionPortal(center, spec = {}) {
+  return spawnInstructionFromExisting(spawnPortals, center, spec);
+}
+
+function spawnInstructionFireflies(center, spec = {}) {
+  return spawnInstructionFromExisting(spawnFireflies, center, spec);
+}
+
+function spawnInstructionTotem(center, spec = {}) {
+  return spawnInstructionFromExisting(spawnTotems, center, spec);
+}
+
+function spawnInstructionRock(center, spec = {}) {
+  return spawnInstructionFromExisting(spawnRocks, center, spec);
+}
+
+function spawnInstructionCacti(center, spec = {}) {
+  return spawnInstructionFromExisting(spawnCacti, center, spec);
+}
+
+function spawnInstructionRuins(center, spec = {}) {
+  return spawnInstructionFromExisting(spawnRuins, center, spec);
+}
+
+function spawnInstructionMirage(center, spec = {}) {
+  return spawnInstructionFromExisting(spawnMirage, center, spec);
+}
+
+function spawnInstructionNomads(center, spec = {}) {
+  return spawnInstructionFromExisting(spawnNomads, center, spec);
+}
+
+function spawnInstructionStorm(center, spec = {}) {
+  return spawnInstructionFromExisting(spawnStorm, center, spec);
+}
+
+function spawnInstructionDune(center, spec = {}) {
+  const group = new THREE.Group();
+  const scale = specSizeToScale(spec.size, spec.scale);
+  const width = THREE.MathUtils.clamp(readNumber(spec.width, 60) * scale, 20, 260);
+  const height = THREE.MathUtils.clamp(readNumber(spec.height, 12) * scale, 4, 60);
+  const geometry = new THREE.CylinderGeometry(width, width * 0.4, height, 24, 1, true);
+  geometry.rotateX(Math.PI / 2);
+  const material = new THREE.MeshStandardMaterial({
+    color: colorWithFallback(spec.color, 0xe3c086),
+    flatShading: true,
+    roughness: 0.95,
+    metalness: 0.05,
+    side: THREE.DoubleSide,
+  });
+  const dune = new THREE.Mesh(geometry, material);
+  dune.position.y = height * 0.25;
+  group.add(dune);
+  group.position.copy(center);
+  return group;
+}
+
+function spawnInstructionBridge(center, spec = {}) {
+  const group = new THREE.Group();
+  const length = THREE.MathUtils.clamp(readNumber(spec.length, 40), 20, 200);
+  const width = THREE.MathUtils.clamp(readNumber(spec.width, 6), 3, 30);
+  const color = colorWithFallback(spec.color, 0xcbb6a0);
+  const walkway = new THREE.Mesh(
+    new THREE.BoxGeometry(length, 1, width),
+    new THREE.MeshStandardMaterial({
+      color,
+      roughness: 0.7,
+      metalness: 0.15,
+    })
+  );
+  walkway.castShadow = true;
+  walkway.position.y = 3;
+  group.add(walkway);
+
+  const archGeo = new THREE.TorusGeometry(width, 0.5, 12, 40, Math.PI);
+  const archMat = new THREE.MeshStandardMaterial({
+    color: color.clone().offsetHSL(0, 0, 0.15),
+    metalness: 0.3,
+  });
+  const arch = new THREE.Mesh(archGeo, archMat);
+  arch.rotation.z = Math.PI;
+  arch.scale.set(length / 20, 1, 1);
+  arch.position.y = 3.5;
+  group.add(arch);
+
+  group.position.copy(center);
+  return group;
+}
+
+function spawnInstructionMonolith(center, spec = {}) {
+  const group = new THREE.Group();
+  const scale = specSizeToScale(spec.size, spec.scale);
+  const height = THREE.MathUtils.clamp(readNumber(spec.height, 30) * scale, 10, 200);
+  const color = colorWithFallback(spec.color, 0x7078ff);
+  const slab = new THREE.Mesh(
+    new THREE.BoxGeometry(Math.max(2, height * 0.15), height, Math.max(2, height * 0.15)),
+    new THREE.MeshStandardMaterial({
+      color,
+      emissive: color.clone().multiplyScalar(0.2),
+      metalness: 0.6,
+      roughness: 0.25,
+    })
+  );
+  slab.castShadow = true;
+  slab.position.y = height / 2;
+  group.add(slab);
+
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(Math.max(3, height * 0.3), 0.25, 16, 40),
+    new THREE.MeshBasicMaterial({ color: 0xfff9c4 })
+  );
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = height * 0.8;
+  group.add(ring);
+
+  group.position.copy(center);
+  return group;
+}
+
+function spawnInstructionFlora(center, spec = {}) {
+  return spawnInstructionFromExisting(spawnFlora, center, spec);
+}
+
+function spawnInstructionCreature(center, spec = {}) {
+  return spawnInstructionFromExisting(spawnCreatures, center, spec);
+}
+
+function spawnInstructionSentinel(center, spec = {}) {
+  return spawnInstructionFromExisting(spawnSentinels, center, spec);
+}
+
+function spawnInstructionFromExisting(factory, center, spec = {}) {
+  const object = factory(new THREE.Vector3(0, 0, 0));
+  if (spec.color) {
+    tintGroupMaterials(object, spec.color);
+  }
+  const scale = specSizeToScale(spec.size, spec.scale);
+  if (scale !== 1) {
+    object.scale.setScalar(scale);
+  }
+  object.position.copy(center);
+  return object;
+}
+
+function tintGroupMaterials(object, colorValue) {
+  const tint = resolveColor(colorValue);
+  if (!tint) return;
+  object.traverse?.((child) => {
+    const apply = (material) => {
+      if (!material) return;
+      if (material.color) {
+        material.color.copy(tint);
+      }
+      if (material.emissive) {
+        material.emissive.copy(tint).multiplyScalar(0.2);
+      }
+    };
+    if (Array.isArray(child.material)) {
+      child.material.forEach(apply);
+    } else {
+      apply(child.material);
+    }
+  });
+}
+
+function colorWithFallback(value, fallback) {
+  const tint = resolveColor(value);
+  if (tint) return tint;
+  return new THREE.Color(fallback);
+}
+
+function resolveColor(value) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return new THREE.Color(value);
+  }
+  if (typeof value === "string" && value.trim()) {
+    try {
+      const parsed = new THREE.Color(value.trim());
+      if (Number.isNaN(parsed.r) || Number.isNaN(parsed.g) || Number.isNaN(parsed.b)) {
+        return null;
+      }
+      return parsed;
+    } catch (error) {
+      return null;
+    }
+  }
+  return null;
+}
+
+function specSizeToScale(sizeValue, explicitScale) {
+  if (typeof explicitScale === "number" && Number.isFinite(explicitScale)) {
+    return THREE.MathUtils.clamp(explicitScale, 0.4, 4);
+  }
+  if (typeof sizeValue === "string") {
+    const value = sizeValue.toLowerCase();
+    if (["tiny", "small", "pequeno", "pequeño"].includes(value)) return 0.7;
+    if (["huge", "large", "gigantic", "enorme", "grand", "grande"].includes(value)) return 1.6;
+    if (["colossal", "gigante"].includes(value)) return 2.2;
+  }
+  return 1;
+}
+
+function readNumber(value, fallback) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = parseFloat(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
 }

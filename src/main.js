@@ -1,5 +1,5 @@
 import { initUI } from "./ui.js";
-import { createWorld, parsePromptHeuristics } from "./world.js";
+import { createWorld } from "./world.js";
 import { createAmbientAudio } from "./audio.js";
 
 console.log("UniversoDú boot");
@@ -89,6 +89,41 @@ const KNOWN_TAGS = [
   "sentinels",
 ];
 const ALLOWED_TAGS = new Set(KNOWN_TAGS);
+const ENTITY_TYPE_ALIASES = {
+  structures: "structure",
+  building: "structure",
+  buildings: "structure",
+  towers: "tower",
+  tower: "tower",
+  trees: "tree",
+  cactus: "cacti",
+  cactuses: "cacti",
+  waters: "water",
+  lakes: "water",
+  crystals: "crystal",
+  portals: "portal",
+  gateways: "portal",
+  firefly: "fireflies",
+  fireflies: "fireflies",
+  totems: "totem",
+  rocks: "rock",
+  stones: "rock",
+  dunes: "dune",
+  bridges: "bridge",
+  monoliths: "monolith",
+  florae: "flora",
+  plants: "flora",
+  creatures: "creature",
+  sentinels: "sentinel",
+  guardians: "sentinel",
+  ruins: "ruins",
+  temples: "ruins",
+  mirages: "mirage",
+  visions: "mirage",
+  nomads: "nomad",
+  caravans: "nomad",
+  storms: "storm",
+};
 
 function normalizeTags(list) {
   const cleaned = new Set();
@@ -118,12 +153,129 @@ function normalizeTags(list) {
   return cleaned;
 }
 
+function sanitizeJsonText(rawText) {
+  if (typeof rawText !== "string") return "";
+  let text = rawText.trim();
+  if (text.startsWith("```") && text.includes("\n")) {
+    const firstBreak = text.indexOf("\n");
+    text = text.slice(firstBreak + 1);
+  }
+  if (text.endsWith("```")) {
+    text = text.slice(0, -3);
+  }
+  return text.trim();
+}
+
+function parseAiJson(rawText) {
+  const clean = sanitizeJsonText(rawText);
+  if (!clean) {
+    throw new Error("La IA respondió vacío");
+  }
+  try {
+    return JSON.parse(clean);
+  } catch (error) {
+    throw new Error("La IA devolvió JSON inválido");
+  }
+}
+
+function extractTags(payload) {
+  const candidate =
+    payload?.tags ??
+    payload?.result?.tags ??
+    payload?.data?.tags ??
+    payload?.response?.tags;
+  if (Array.isArray(candidate)) return candidate;
+  if (typeof candidate === "string") {
+    return candidate.split(/[,\n]/);
+  }
+  return [];
+}
+
+function extractSummary(payload) {
+  const candidate =
+    payload?.summary ??
+    payload?.result?.summary ??
+    payload?.data?.summary ??
+    payload?.response?.summary;
+  if (typeof candidate === "string" && candidate.trim()) {
+    return candidate.trim();
+  }
+  return "";
+}
+
+function extractEntities(payload) {
+  const candidate =
+    payload?.entities ??
+    payload?.result?.entities ??
+    payload?.data?.entities ??
+    payload?.response?.entities;
+  if (Array.isArray(candidate)) return candidate;
+  return [];
+}
+
+function normalizeEntities(list) {
+  if (!Array.isArray(list)) return [];
+  const cleaned = [];
+  list.forEach((entity) => {
+    if (!entity || typeof entity !== "object") return;
+    const typeSource = entity.type ?? entity.entity ?? entity.kind;
+    const type =
+      typeof typeSource === "string" ? typeSource.toLowerCase().trim() : "";
+    if (!type) return;
+    const canonical = ENTITY_TYPE_ALIASES[type] || type;
+    const normalized = {
+      type: canonical,
+      quantity: clampNumber(toFiniteNumber(entity.quantity ?? entity.count ?? 1, 1) || 1, 1, 8),
+    };
+    if (typeof entity.size === "string" && entity.size.trim()) {
+      normalized.size = entity.size.trim().toLowerCase();
+    }
+    if (typeof entity.scale === "number" && Number.isFinite(entity.scale)) {
+      normalized.scale = clampNumber(entity.scale, 0.3, 4);
+    }
+    if (typeof entity.color === "string" && entity.color.trim()) {
+      normalized.color = entity.color.trim().slice(0, 32);
+    }
+    if (typeof entity.trunkColor === "string" && entity.trunkColor.trim()) {
+      normalized.trunkColor = entity.trunkColor.trim().slice(0, 32);
+    }
+    if (typeof entity.foliageColor === "string" && entity.foliageColor.trim()) {
+      normalized.foliageColor = entity.foliageColor.trim().slice(0, 32);
+    }
+    if (typeof entity.detail === "string" && entity.detail.trim()) {
+      normalized.detail = entity.detail.trim().slice(0, 160);
+    }
+    ["floors", "height", "width", "depth", "radius", "length", "spread"].forEach((key) => {
+      const num = toFiniteNumber(entity[key]);
+      if (typeof num === "number") {
+        normalized[key] = num;
+      }
+    });
+    cleaned.push(normalized);
+  });
+  return cleaned;
+}
+
+function toFiniteNumber(value, fallback) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const normalized = Number(value.trim().replace(/,/g, "."));
+    if (Number.isFinite(normalized)) return normalized;
+  }
+  return typeof fallback === "number" ? fallback : undefined;
+}
+
+function clampNumber(value, min, max) {
+  if (typeof value !== "number" || Number.isNaN(value)) return min;
+  return Math.max(min, Math.min(max, value));
+}
+
 function initWorld() {
   try {
     world = createWorld(canvas, {
       onPointerLockChange: (locked) => {
         ui.markPointerLock(locked);
-        ui.setEnterButtonState(locked ? "Explorando" : "Entrar al Universo", locked);
+        ui.setEnterButtonState(locked ? "Explorando" : "Entrar", locked);
         if (!locked && document.pointerLockElement) {
           document.exitPointerLock().catch(() => {});
         }
@@ -152,6 +304,7 @@ async function handlePrompt(prompt) {
   ui.setStatus("Invocando paisaje...");
   let summary = "";
   let tags = new Set();
+  let entitiesPlan = [];
 
   try {
     const response = await fetch(AI_ENDPOINT, {
@@ -162,27 +315,31 @@ async function handlePrompt(prompt) {
     if (!response.ok) {
       throw new Error(`endpoint ${AI_ENDPOINT} sin respuesta`);
     }
-    const data = await response.json();
-    const candidateTags = Array.isArray(data?.tags) ? data.tags : [];
-    const candidateSummary = data?.summary;
+    const payload = await response.json();
+    const parsed = typeof payload === "string" ? parseAiJson(payload) : payload;
+    const candidateTags = extractTags(parsed);
+    const candidateSummary = extractSummary(parsed);
+    const candidateEntities = extractEntities(parsed);
     const sanitized = normalizeTags(candidateTags);
     sanitized.forEach((tag) => tags.add(tag));
+    entitiesPlan = normalizeEntities(candidateEntities);
     summary = candidateSummary || summary;
-    if (!tags.size) {
-      throw new Error("La IA no devolvió etiquetas válidas");
+    if (!tags.size && !entitiesPlan.length) {
+      throw new Error("La IA no devolvió instrucciones");
     }
     if (!summary) {
       summary = Array.from(tags).map((tag) => tagLabel(tag)).join(" · ");
     }
+    if (!summary && entitiesPlan.length) {
+      summary = entitiesPlan.map((entity) => entity.type).join(" · ");
+    }
   } catch (error) {
-    console.warn("AI fallback", error);
-    ui.notify("No se pudo contactar a la IA. Aprovechando heurísticas");
-    const fallback = parsePromptHeuristics(prompt);
-    summary = fallback.summary;
-    tags = fallback.tags;
+    console.error("AI request error", error);
+    ui.showError("Modo IA no disponible. Revisa consola");
+    return;
   }
 
-  world.spawnFromTags(tags);
+  world.applyPromptPlan({ tags, entities: entitiesPlan });
   ui.pushPromptLog(prompt, summary);
   ui.setStatus("Paisaje actualizado");
 }
