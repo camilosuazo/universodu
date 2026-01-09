@@ -74,3 +74,108 @@ export function createAmbientAudio() {
     isActive: () => !!source,
   };
 }
+
+export function createSpatialTrack({
+  url,
+  loop = true,
+  minDistance = 8,
+  maxDistance = 90,
+} = {}) {
+  const AudioContext =
+    typeof window !== "undefined" && (window.AudioContext || window.webkitAudioContext);
+  if (!AudioContext || !url) return null;
+  const ctx = new AudioContext();
+  const gain = ctx.createGain();
+  gain.gain.value = 0;
+  gain.connect(ctx.destination);
+
+  let buffer = null;
+  let source = null;
+  let loading = null;
+  let disabled = false;
+
+  async function loadBuffer() {
+    if (buffer || loading || disabled) return loading;
+    loading = fetch(url)
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`Track unavailable at ${url}`);
+        }
+        return response.arrayBuffer();
+      })
+      .then(
+        (arrayBuffer) =>
+          new Promise((resolve, reject) => {
+            ctx.decodeAudioData(arrayBuffer, resolve, reject);
+          })
+      )
+      .then((decoded) => {
+        buffer = decoded;
+      })
+      .catch((error) => {
+        console.error("Unable to load spatial track", error);
+        disabled = true;
+      })
+      .finally(() => {
+        loading = null;
+      });
+    return loading;
+  }
+
+  async function ensureSource() {
+    if (disabled || source) return;
+    if (!buffer) {
+      await loadBuffer();
+    }
+    if (!buffer || source) return;
+    source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.loop = loop;
+    source.connect(gain);
+    try {
+      source.start(0);
+    } catch (error) {
+      console.warn("Spatial track could not start", error);
+    }
+  }
+
+  function setDistance(distance = maxDistance) {
+    if (disabled) return;
+    if (!buffer && !loading) {
+      loadBuffer();
+    }
+    if (!source && buffer) {
+      ensureSource();
+    }
+    if (!ctx || !gain) return;
+    const safeMin = Math.max(0, minDistance);
+    const safeMax = Math.max(safeMin + 1, maxDistance);
+    const clamped = Math.max(safeMin, Math.min(safeMax, distance || safeMax));
+    const normalized = 1 - (clamped - safeMin) / (safeMax - safeMin);
+    const target = Math.max(0, Math.min(1, normalized));
+    const now = ctx.currentTime || 0;
+    try {
+      gain.gain.cancelScheduledValues(now);
+      gain.gain.linearRampToValueAtTime(Math.pow(target, 1.5), now + 0.25);
+    } catch (error) {
+      gain.gain.value = target;
+    }
+  }
+
+  async function unlock() {
+    if (disabled) return;
+    if (ctx.state === "suspended") {
+      try {
+        await ctx.resume();
+      } catch (error) {
+        console.warn("Unable to resume spatial track", error);
+      }
+    }
+    await ensureSource();
+  }
+
+  return {
+    setDistance,
+    unlock,
+  };
+}

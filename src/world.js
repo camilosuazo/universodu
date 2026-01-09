@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { PointerLockControls } from "three/addons/controls/PointerLockControls.js";
+import { createSpatialTrack } from "./audio.js";
 
 const MAX_PROMPT_OBJECTS = 120;
 const WALK_SPEED = 42;
@@ -26,6 +27,10 @@ function tagLabel(tag) {
       return "Nuevo relieve";
   }
 }
+
+const PRIEST_TRACK_URL =
+  (typeof import.meta !== "undefined" && import.meta.env?.VITE_PRIEST_TRACK) ||
+  "/music/sacerdote-theme.mp3";
 
 const DAY_STAGES = {
   amanecer: {
@@ -132,6 +137,12 @@ export function createWorld(canvas, { onPointerLockChange, onPointerLockError })
   const dustLayer = createDust();
   scene.add(dustLayer.points);
 
+  const priestShrine = createPriestShrine({
+    scene,
+    camera,
+    trackUrl: PRIEST_TRACK_URL,
+  });
+
   const promptGroup = new THREE.Group();
   scene.add(promptGroup);
   const promptObjects = [];
@@ -146,6 +157,7 @@ export function createWorld(canvas, { onPointerLockChange, onPointerLockError })
   function requestPointerLock() {
     try {
       controls.lock();
+      priestShrine?.unlockAudio?.();
     } catch (error) {
       onPointerLockError?.("Pointer Lock no disponible en este navegador.");
     }
@@ -269,6 +281,7 @@ export function createWorld(canvas, { onPointerLockChange, onPointerLockError })
     const delta = Math.min(clock.getDelta(), 0.1);
     updateDust(dustLayer, delta);
     updateMovement(delta);
+    priestShrine?.update?.();
     renderer.render(scene, camera);
     requestAnimationFrame(animate);
   }
@@ -940,6 +953,137 @@ function disposeObject(obj) {
       }
     }
   });
+}
+
+function createPriestShrine({ scene, camera, trackUrl }) {
+  const shrine = new THREE.Group();
+  const baseMat = new THREE.MeshStandardMaterial({
+    color: 0x2e1f32,
+    roughness: 0.8,
+    metalness: 0.2,
+  });
+  const platform = new THREE.Mesh(new THREE.CylinderGeometry(12, 14, 2.4, 36), baseMat);
+  platform.receiveShadow = true;
+  platform.position.y = 1.2;
+  shrine.add(platform);
+
+  const rune = new THREE.Mesh(
+    new THREE.TorusGeometry(9, 0.45, 16, 80),
+    new THREE.MeshStandardMaterial({
+      color: 0xfff2c1,
+      emissive: 0x4c2d1f,
+      metalness: 0.4,
+      roughness: 0.25,
+    })
+  );
+  rune.rotation.x = Math.PI / 2;
+  rune.position.y = 2.4;
+  shrine.add(rune);
+
+  const priest = buildPriestFigure();
+  priest.position.y = 2.4;
+  shrine.add(priest);
+
+  const halo = new THREE.Mesh(
+    new THREE.TorusGeometry(5.5, 0.15, 12, 60),
+    new THREE.MeshBasicMaterial({ color: 0xfff5ce, transparent: true, opacity: 0.75 })
+  );
+  halo.rotation.x = Math.PI / 2;
+  halo.position.y = 11.3;
+  shrine.add(halo);
+
+  const flame = new THREE.Mesh(
+    new THREE.SphereGeometry(1.2, 16, 16),
+    new THREE.MeshBasicMaterial({ color: 0xffe9b8, transparent: true, opacity: 0.65 })
+  );
+  flame.position.y = 10.2;
+  shrine.add(flame);
+
+  const flameLight = new THREE.PointLight(0xffddb1, 0.9, 120, 2);
+  flameLight.position.y = 10.2;
+  shrine.add(flameLight);
+
+  shrine.position.set(30, 0, -70);
+  scene.add(shrine);
+
+  const spatialTrack = createSpatialTrack({
+    url: trackUrl,
+    minDistance: 8,
+    maxDistance: 110,
+  });
+
+  const update = () => {
+    const time = performance.now() * 0.001;
+    halo.rotation.z = time * 0.4;
+    flame.position.y = 10.2 + Math.sin(time * 2.1) * 0.4;
+    flame.material.opacity = 0.4 + (Math.sin(time * 3.2) + 1) * 0.25;
+    priest.rotation.y = Math.sin(time * 0.25) * 0.2;
+    if (spatialTrack && camera) {
+      const distance = camera.position.distanceTo(shrine.position);
+      spatialTrack.setDistance(distance);
+    }
+  };
+
+  const unlockAudio = () => {
+    spatialTrack?.unlock?.();
+  };
+
+  return { update, unlockAudio };
+}
+
+function buildPriestFigure() {
+  const figure = new THREE.Group();
+  const robeMat = new THREE.MeshStandardMaterial({
+    color: 0xcdd7ff,
+    emissive: 0x1d1737,
+    roughness: 0.6,
+    metalness: 0.1,
+  });
+  const robe = new THREE.Mesh(new THREE.ConeGeometry(4.5, 11, 24, 1, true), robeMat);
+  robe.castShadow = true;
+  robe.position.y = 5.5;
+  figure.add(robe);
+
+  const sashMat = new THREE.MeshStandardMaterial({
+    color: 0xffb347,
+    emissive: 0x4e1e0d,
+    metalness: 0.3,
+  });
+  const sash = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 12, 8), sashMat);
+  sash.position.set(0, 5.5, 2.5);
+  sash.rotation.x = Math.PI / 2;
+  figure.add(sash);
+
+  const head = new THREE.Mesh(
+    new THREE.SphereGeometry(1.6, 18, 18),
+    new THREE.MeshStandardMaterial({ color: 0xf5e3d7, roughness: 0.7 })
+  );
+  head.position.y = 11;
+  head.castShadow = true;
+  figure.add(head);
+
+  const hood = new THREE.Mesh(
+    new THREE.SphereGeometry(2.6, 18, 18, 0, Math.PI * 2, Math.PI / 2, Math.PI),
+    robeMat
+  );
+  hood.position.y = 10.4;
+  figure.add(hood);
+
+  const staffMat = new THREE.MeshStandardMaterial({ color: 0x7a4b35, roughness: 0.8 });
+  const staff = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.35, 12, 12), staffMat);
+  staff.position.set(2.8, 6.2, 0);
+  staff.rotation.z = Math.PI / 12;
+  staff.castShadow = true;
+  figure.add(staff);
+
+  const staffOrb = new THREE.Mesh(
+    new THREE.SphereGeometry(0.8, 12, 12),
+    new THREE.MeshBasicMaterial({ color: 0x9ad8ff, transparent: true, opacity: 0.9 })
+  );
+  staffOrb.position.set(3.1, 12.2, 0);
+  figure.add(staffOrb);
+
+  return figure;
 }
 
 function spawnInstructionStructure(center, spec = {}) {
