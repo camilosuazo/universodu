@@ -18,16 +18,30 @@
       font-family: "Space Grotesk", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
     }
     * { box-sizing: border-box; }
+    html, body {
+      width: 100%;
+      height: 100%;
+    }
     body {
       margin: 0;
-      min-height: 100vh;
-      background: radial-gradient(circle at top, #f6f0dc 0%, #d6c098 60%, #927c58 100%);
+      background: #05070f;
       color: #fff;
       overflow: hidden;
       font-size: clamp(15px, 1.5vw, 17px);
     }
-    #app { position: relative; width: 100vw; height: 100vh; }
-    #world-canvas { width: 100%; height: 100%; display: block; }
+    #app {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      min-height: 100vh;
+    }
+    #world-canvas {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      display: block;
+    }
     .hud-wrapper {
       position: absolute;
       top: 1.2rem;
@@ -205,6 +219,8 @@
       gap: 0.5rem;
       transition: max-height 0.3s ease, opacity 0.3s ease;
       max-height: 600px;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
     }
     #prompt-form { margin-top: 1rem; display: flex; flex-wrap: wrap; gap: 0.75rem; }
     #prompt-input {
@@ -306,7 +322,7 @@
     }
     @media (max-width: 768px) {
       body { overflow: hidden; }
-      #app { height: auto; }
+      #app { height: 100vh; }
       .hud-wrapper { position: absolute; top: 0.8rem; left: 0.8rem; right: 0.8rem; }
       .panel-card {
         position: fixed;
@@ -320,8 +336,9 @@
         padding: 1rem 1.3rem calc(1.2rem + env(safe-area-inset-bottom, 0px));
       }
       .panel-card.collapsed {
-        transform: translateY(calc(100% - 3.4rem));
-        opacity: 1;
+        transform: translateY(calc(100% + 1rem));
+        opacity: 0;
+        pointer-events: none;
       }
       .panel-body {
         max-height: none;
