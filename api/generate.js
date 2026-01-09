@@ -30,14 +30,21 @@ export default async function handler(req, res) {
   }
 
   let body = "";
-  for await (const chunk of req) {
-    body += chunk;
+  try {
+    for await (const chunk of req) {
+      body += chunk;
+    }
+  } catch (err) {
+    console.error("Error leyendo body", err);
+    res.status(500).json({ error: "No se pudo leer el body", detail: err?.message || "unknown" });
+    return;
   }
 
   let payload = {};
   try {
     payload = JSON.parse(body || "{}");
   } catch (error) {
+    console.error("JSON parse error", body);
     res.status(400).json({ error: "JSON inválido" });
     return;
   }
