@@ -20,6 +20,7 @@ export function initUI({
   const hudToggle = document.getElementById("hud-toggle");
   const panel = document.getElementById("control-panel");
   const panelToggle = document.getElementById("panel-toggle");
+  const panelFab = document.getElementById("panel-fab");
   const fileOverlay = document.getElementById("file-overlay");
   const fileOverlayButton = document.getElementById("file-overlay-button");
   const errorOverlay = document.getElementById("error-overlay");
@@ -78,11 +79,47 @@ export function initUI({
     onDayChange?.(daySelect.value);
   });
 
+  let panelCollapsed = panel?.classList.contains("collapsed") || false;
+
+  function updatePanelState(collapsed, { silent } = {}) {
+    if (!panel) return;
+    panelCollapsed = !!collapsed;
+    panel.classList.toggle("collapsed", panelCollapsed);
+    const toggleLabel = panelCollapsed ? "Mostrar tags" : "Ocultar tags";
+    if (panelToggle) {
+      panelToggle.textContent = toggleLabel;
+    }
+    if (panelFab) {
+      panelFab.textContent = panelCollapsed ? "Mostrar tags" : "Ocultar tags";
+      panelFab.setAttribute("aria-expanded", (!panelCollapsed).toString());
+    }
+    if (!silent) {
+      onTogglePanel?.(panelCollapsed);
+    }
+  }
+
   panelToggle?.addEventListener("click", () => {
-    const collapsed = panel?.classList.toggle("collapsed");
-    panelToggle.textContent = collapsed ? "Mostrar panel" : "Ocultar panel";
-    onTogglePanel?.(!!collapsed);
+    updatePanelState(!panelCollapsed);
   });
+
+  panelFab?.addEventListener("click", () => {
+    updatePanelState(!panelCollapsed);
+  });
+
+  const mobileQuery = window.matchMedia("(max-width: 768px)");
+  const handleMediaChange = (event) => {
+    updatePanelState(event.matches, { silent: true });
+  };
+  if (mobileQuery.matches) {
+    updatePanelState(true, { silent: true });
+  }
+  if (typeof mobileQuery.addEventListener === "function") {
+    mobileQuery.addEventListener("change", handleMediaChange);
+  } else if (typeof mobileQuery.addListener === "function") {
+    mobileQuery.addListener(handleMediaChange);
+  }
+
+  updatePanelState(panelCollapsed, { silent: true });
 
   fileOverlayButton?.addEventListener("click", () => {
     onRequestLocalServerHelp?.();

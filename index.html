@@ -176,6 +176,8 @@
       z-index: 5;
       transition: transform 0.3s ease, opacity 0.3s ease;
       pointer-events: auto;
+      max-height: clamp(420px, 55vh, 560px);
+      overflow-y: auto;
     }
     .panel-card.collapsed {
       transform: translate(-50%, calc(100% - 3.6rem));
@@ -231,6 +233,24 @@
     .prompt-log ul { list-style: none; margin: 0.5rem 0 0; padding: 0; max-height: 150px; overflow: auto; }
     .prompt-log li { display: flex; justify-content: space-between; gap: 0.75rem; padding: 0.35rem 0; border-bottom: 1px solid rgba(255,255,255,0.15); }
     .prompt-log small { color: var(--accent); letter-spacing: 0.1em; font-size: 0.7rem; }
+    .panel-fab {
+      position: fixed;
+      top: 1.2rem;
+      right: 1.35rem;
+      border: none;
+      border-radius: 999px;
+      padding: 0.65rem 1.2rem;
+      background: rgba(15,23,42,0.85);
+      color: #fff;
+      font-weight: 600;
+      font-size: 0.85rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      box-shadow: 0 15px 30px rgba(0,0,0,0.4);
+      cursor: pointer;
+      z-index: 9;
+      display: none;
+    }
     .overlay { position: fixed; inset: 0; background: rgba(8,11,19,0.9); display: none; align-items: center; justify-content: center; padding: 2rem; text-align: center; z-index: 50; }
     .overlay.active { display: flex; }
     .overlay-content { background: rgba(15,23,42,0.9); border: 1px solid rgba(255,255,255,0.15); border-radius: 1.25rem; padding: 2rem; max-width: 520px; box-shadow: 0 25px 65px rgba(0,0,0,0.45); }
@@ -288,7 +308,24 @@
       body { overflow: hidden; }
       #app { height: auto; }
       .hud-wrapper { position: absolute; top: 0.8rem; left: 0.8rem; right: 0.8rem; }
-      .panel-card { width: calc(100% - 1rem); left: 50%; }
+      .panel-card {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        width: 100%;
+        transform: translateY(0);
+        border-radius: 1.25rem 1.25rem 0 0;
+        max-height: min(75vh, 520px);
+        padding: 1rem 1.3rem calc(1.2rem + env(safe-area-inset-bottom, 0px));
+      }
+      .panel-card.collapsed {
+        transform: translateY(calc(100% - 3.4rem));
+        opacity: 1;
+      }
+      .panel-body {
+        max-height: none;
+      }
       #prompt-form { flex-direction: column; }
       #prompt-form button[type="submit"] { width: 100%; }
       .joystick,
@@ -296,11 +333,19 @@
         display: block;
       }
       .enter-button {
-        bottom: calc(4.4rem + env(safe-area-inset-bottom, 0px));
-        left: auto;
-        right: clamp(0.65rem, 2vw, 1.2rem);
+        bottom: calc(4.2rem + env(safe-area-inset-bottom, 0px));
+        left: clamp(0.65rem, 2vw, 1.2rem);
+        right: auto;
         font-size: 0.85rem;
         padding: 0.55rem 1.1rem;
+      }
+      .panel-fab {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        top: auto;
+        bottom: calc(12.5rem + env(safe-area-inset-bottom, 0px));
+        right: clamp(0.65rem, 2vw, 1.2rem);
       }
     }
     @media (max-width: 540px) {
@@ -345,7 +390,7 @@
     <section class="panel-card" id="control-panel">
       <div class="panel-header">
         <strong>Modela el paisaje</strong>
-        <button id="panel-toggle">Ocultar panel</button>
+        <button id="panel-toggle">Ocultar tags</button>
       </div>
       <div class="panel-body">
         <form id="prompt-form">
@@ -365,6 +410,7 @@
         </div>
       </div>
     </section>
+    <button class="panel-fab" id="panel-fab" aria-expanded="false" aria-controls="control-panel">Mostrar tags</button>
   </div>
   <div class="mobile-controls">
     <div class="joystick" id="joystick">
