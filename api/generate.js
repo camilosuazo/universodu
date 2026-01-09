@@ -48,21 +48,30 @@ export default async function handler(req, res) {
     return;
   }
 
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
-    res.status(500).json({ error: "OPENAI_API_KEY no configurada" });
+    res.status(500).json({ error: "OPENROUTER_API_KEY no configurada" });
     return;
   }
 
   try {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const headers = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    };
+
+    if (process.env.OPENROUTER_SITE_URL) {
+      headers["HTTP-Referer"] = process.env.OPENROUTER_SITE_URL;
+    }
+    if (process.env.OPENROUTER_APP_NAME) {
+      headers["X-Title"] = process.env.OPENROUTER_APP_NAME;
+    }
+
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
+      headers,
       body: JSON.stringify({
-        model: "gpt-4o-mini",
+        model: process.env.OPENROUTER_MODEL || "nousresearch/hermes-3-llama-3.1-8b",
         temperature: 0.4,
         messages: [
           {
@@ -80,7 +89,7 @@ export default async function handler(req, res) {
 
     if (!response.ok) {
       const errorText = await response.text();
-      res.status(response.status).json({ error: "OpenAI error", detail: errorText });
+      res.status(response.status).json({ error: "OpenRouter error", detail: errorText });
       return;
     }
 
@@ -111,6 +120,6 @@ export default async function handler(req, res) {
     });
   } catch (error) {
     console.error("IA endpoint error", error);
-    res.status(500).json({ error: "Fallo al contactar OpenAI" });
+    res.status(500).json({ error: "Fallo al contactar OpenRouter" });
   }
 }

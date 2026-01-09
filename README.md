@@ -78,7 +78,7 @@ Para otros despliegues (por ejemplo Vercel) deja `BASE_PATH` vacío y todo se se
 Este repo incluye `api/generate.js`, lista para desplegarse en Vercel como función serverless. Hace lo siguiente:
 
 1. Recibe `POST` con `{ prompt }`.
-2. Usa la variable de entorno `OPENAI_API_KEY` para invocar `gpt-4o-mini` y pedir un JSON con `summary` + `tags`.
+2. Usa la variable de entorno `OPENROUTER_API_KEY` para invocar el modelo (por defecto `nousresearch/hermes-3-llama-3.1-8b`, configurable con `OPENROUTER_MODEL`) y pedir un JSON con `summary` + `tags`.
 3. Sanitiza las etiquetas para que solo existan los valores admitidos por el frontend (cacti, rocks, oasis, ruins, crystals, mirage, fireflies, totems).
 4. Devuelve `{ summary, tags }` o un error descriptivo.
 
@@ -108,8 +108,10 @@ En Vercel únicamente debes definir la variable `OPENAI_API_KEY` en Project Sett
 
 1. **Importa el repo en Vercel** (botón “New Project” → selecciona `universodu`). El framework detectado debe ser “Vite”.
 2. **Variables de entorno** (Project Settings → Environment Variables):
-   - `OPENAI_API_KEY` → tu clave secreta de OpenAI (solo en Vercel, nunca en el repo).
+   - `OPENROUTER_API_KEY` → tu key de OpenRouter (solo en Vercel).
+   - *(Opcional)* `OPENROUTER_MODEL` → otro modelo compatible, si no quieres el valor por defecto.
    - `VITE_AI_ENDPOINT` → `https://<tu-proyecto>.vercel.app/api/generate` (ajusta `<tu-proyecto>` al subdominio que uses).
+   - *(Opcional)* `OPENROUTER_SITE_URL` y `OPENROUTER_APP_NAME` → encabezados recomendados por OpenRouter para referenciar tu dominio/aplicación.
 3. Guarda los cambios y despliega. Vercel ejecutará:
    ```bash
    npm install
@@ -120,7 +122,7 @@ En Vercel únicamente debes definir la variable `OPENAI_API_KEY` en Project Sett
 ### Cómo queda el flujo
 
 - **Frontend (UniversoDú)** → lee `VITE_AI_ENDPOINT` y hace `fetch` cuando activas “Modo IA”.
-- **Backend (Vercel Function)** → recibe el prompt y llama a OpenAI con `OPENAI_API_KEY`. Puedes cambiar el modelo o el prompt del sistema editando `api/generate.js`.
+- **Backend (Vercel Function)** → recibe el prompt y llama a OpenRouter con `OPENROUTER_API_KEY`. Puedes cambiar el modelo (`OPENROUTER_MODEL`) o el prompt del sistema editando `api/generate.js`.
 - **Seguridad** → tu clave solo vive en Vercel; si necesitas rotarla, hazlo desde su panel y vuelve a desplegar.
 
 Si prefieres otro proveedor (Cloudflare Worker, Netlify, Fly, etc.), sigue la misma idea: expone un endpoint HTTPS que hable con OpenAI usando variables del servidor y configura `VITE_AI_ENDPOINT` apuntándolo a ese dominio.
