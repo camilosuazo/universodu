@@ -107,7 +107,8 @@ export default async function handler(req, res) {
     let summary = "";
     let tags = [];
     try {
-      const parsed = JSON.parse(raw);
+      const cleaned = cleanModelOutput(raw);
+      const parsed = JSON.parse(cleaned);
       summary = typeof parsed.summary === "string" ? parsed.summary : "";
       tags = Array.isArray(parsed.tags) ? parsed.tags : [];
     } catch (error) {
@@ -130,4 +131,21 @@ export default async function handler(req, res) {
     console.error("IA endpoint error", error);
     res.status(500).json({ error: "Fallo al contactar OpenRouter", detail: error?.message || "unknown" });
   }
+}
+
+function cleanModelOutput(text) {
+  if (!text) return "";
+  let cleaned = text.trim();
+  if (cleaned.startsWith("```")) {
+    cleaned = cleaned.replace(/^```[a-zA-Z0-9_-]*\s*/, "");
+    if (cleaned.endsWith("```")) {
+      cleaned = cleaned.slice(0, -3);
+    }
+  }
+  const firstBrace = cleaned.indexOf("{");
+  const lastBrace = cleaned.lastIndexOf("}");
+  if (firstBrace !== -1 && lastBrace !== -1) {
+    cleaned = cleaned.slice(firstBrace, lastBrace + 1);
+  }
+  return cleaned;
 }
