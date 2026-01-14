@@ -1,4 +1,11 @@
-const MAX_LOG_ITEMS = 6;
+/**
+ * UI module for UniversoDu
+ * Handles DOM interactions and user interface state
+ */
+
+import { UI_CONFIG } from "./constants.js";
+
+const { MAX_LOG_ITEMS, TOAST_DURATION_MS } = UI_CONFIG;
 
 export function initUI({
   onEnterWorld,
@@ -26,7 +33,12 @@ export function initUI({
   const errorOverlay = document.getElementById("error-overlay");
   const errorOverlayButton = document.getElementById("error-overlay-button");
   const audioToggle = document.getElementById("audio-toggle");
+  const submitButton = promptForm?.querySelector('button[type="submit"]');
 
+  // Loading state
+  let isLoading = false;
+
+  // Create toast element
   const toast = document.createElement("div");
   toast.style.position = "absolute";
   toast.style.bottom = "1.2rem";
@@ -43,6 +55,28 @@ export function initUI({
   toast.id = "toast";
   document.body.appendChild(toast);
 
+  // Create loading spinner element
+  const spinner = document.createElement("span");
+  spinner.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation: spin 1s linear infinite; vertical-align: middle; margin-right: 6px;">
+    <circle cx="12" cy="12" r="10" stroke-opacity="0.25"/>
+    <path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"/>
+  </svg>`;
+  spinner.style.display = "none";
+
+  // Add spinner animation style
+  const styleEl = document.createElement("style");
+  styleEl.textContent = `
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    .loading-state {
+      opacity: 0.7;
+      pointer-events: none;
+    }
+  `;
+  document.head.appendChild(styleEl);
+
   enterButton?.addEventListener("click", () => {
     onEnterWorld?.();
   });
@@ -50,7 +84,7 @@ export function initUI({
   audioToggle?.addEventListener("click", () => {
     const enabled = onToggleAudio?.();
     if (enabled === null || typeof enabled === "undefined") return;
-    audioToggle.textContent = enabled ? "Pausar música" : "Activar música";
+    audioToggle.textContent = enabled ? "Pausar musica" : "Activar musica";
   });
 
   hudToggle?.addEventListener("click", () => {
@@ -60,6 +94,7 @@ export function initUI({
 
   promptForm?.addEventListener("submit", (event) => {
     event.preventDefault();
+    if (isLoading) return;
     const value = promptInput?.value?.trim();
     if (!value) return;
     onPrompt?.(value);
@@ -68,7 +103,7 @@ export function initUI({
   document.querySelectorAll(".suggestions span").forEach((span) => {
     span.style.cursor = "pointer";
     span.addEventListener("click", () => {
-      if (promptInput) {
+      if (promptInput && !isLoading) {
         promptInput.value = span.textContent || "";
         promptInput.focus();
       }
@@ -131,7 +166,7 @@ export function initUI({
   function markPointerLock(locked) {
     if (!lockHint) return;
     lockHint.textContent = locked
-      ? "Modo exploración — usa WASD y el mouse"
+      ? "Modo exploracion — usa WASD y el mouse"
       : "Cursor libre";
   }
 
@@ -152,7 +187,7 @@ export function initUI({
     const main = document.createElement("span");
     main.textContent = prompt;
     const meta = document.createElement("small");
-    meta.textContent = summary || "Acción generada";
+    meta.textContent = summary || "Accion generada";
     li.appendChild(main);
     li.appendChild(meta);
     promptLog.prepend(li);
@@ -182,7 +217,7 @@ export function initUI({
   }
 
   let toastTimeout;
-  function notify(message, duration = 2600) {
+  function notify(message, duration = TOAST_DURATION_MS) {
     toast.textContent = message;
     toast.style.opacity = "1";
     clearTimeout(toastTimeout);
@@ -203,6 +238,30 @@ export function initUI({
     }
   }
 
+  function setLoading(loading) {
+    isLoading = loading;
+
+    if (promptInput) {
+      promptInput.disabled = loading;
+      promptInput.classList.toggle("loading-state", loading);
+    }
+
+    if (submitButton) {
+      submitButton.disabled = loading;
+      if (loading) {
+        submitButton.dataset.originalText = submitButton.textContent;
+        submitButton.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation: spin 1s linear infinite; vertical-align: middle; margin-right: 6px;">
+          <circle cx="12" cy="12" r="10" stroke-opacity="0.25"/>
+          <path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"/>
+        </svg>Generando...`;
+        submitButton.style.opacity = "0.7";
+      } else {
+        submitButton.textContent = submitButton.dataset.originalText || "Invocar paisaje";
+        submitButton.style.opacity = "1";
+      }
+    }
+  }
+
   return {
     markPointerLock,
     setEnterButtonState,
@@ -214,5 +273,6 @@ export function initUI({
     notify,
     setStatus,
     clearPromptInput,
+    setLoading,
   };
 }

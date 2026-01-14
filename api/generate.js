@@ -1,3 +1,9 @@
+/**
+ * Vercel serverless function for AI landscape generation
+ * Handles prompt processing via OpenRouter API
+ */
+
+// Shared constants (duplicated here for serverless environment)
 const ALLOWED_TAGS = new Set([
   "cacti",
   "rocks",
@@ -40,14 +46,73 @@ const ENTITY_TYPES = new Set([
   "storm",
 ]);
 
-function withCors(res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization,HTTP-Referer,X-Title");
+const ENTITY_ALIAS_MAP = {
+  structures: "structure",
+  building: "structure",
+  buildings: "structure",
+  towers: "tower",
+  trees: "tree",
+  cactus: "cacti",
+  cactuses: "cacti",
+  oasis: "oasis",
+  waters: "water",
+  lakes: "water",
+  crystals: "crystal",
+  portals: "portal",
+  gateways: "portal",
+  firefly: "fireflies",
+  fireflies: "fireflies",
+  totems: "totem",
+  rocks: "rock",
+  stones: "rock",
+  dunes: "dune",
+  bridges: "bridge",
+  monoliths: "monolith",
+  florae: "flora",
+  plants: "flora",
+  creatures: "creature",
+  sentinels: "sentinel",
+  guardians: "sentinel",
+  ruins: "ruins",
+  temples: "ruins",
+  mirages: "mirage",
+  visions: "mirage",
+  nomads: "nomad",
+  caravans: "nomad",
+  storms: "storm",
+};
+
+// Allowed origins for CORS (production domains)
+const ALLOWED_ORIGINS = [
+  "https://universodu.vercel.app",
+  "https://universodu.com",
+  "http://localhost:5173",
+  "http://localhost:3000",
+  "http://127.0.0.1:5173",
+];
+
+function getCorsHeaders(origin) {
+  // Check if origin is allowed
+  const allowedOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
+
+  return {
+    "Access-Control-Allow-Origin": allowedOrigin,
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Access-Control-Max-Age": "86400",
+  };
+}
+
+function withCors(res, origin) {
+  const headers = getCorsHeaders(origin);
+  Object.entries(headers).forEach(([key, value]) => {
+    res.setHeader(key, value);
+  });
 }
 
 export default async function handler(req, res) {
-  withCors(res);
+  const origin = req.headers.origin || "";
+  withCors(res, origin);
 
   if (req.method === "OPTIONS") {
     res.status(204).end();
@@ -55,7 +120,7 @@ export default async function handler(req, res) {
   }
 
   if (req.method !== "POST") {
-    res.setHeader("Allow", "POST,OPTIONS");
+    res.setHeader("Allow", "POST, OPTIONS");
     res.status(405).json({ error: "Solo POST" });
     return;
   }
@@ -66,8 +131,8 @@ export default async function handler(req, res) {
       body += chunk;
     }
   } catch (err) {
-    console.error("Error leyendo body", err);
-    res.status(500).json({ error: "No se pudo leer el body", detail: err?.message || "unknown" });
+    console.error("Error leyendo body");
+    res.status(500).json({ error: "No se pudo leer el body" });
     return;
   }
 
@@ -75,8 +140,8 @@ export default async function handler(req, res) {
   try {
     payload = JSON.parse(body || "{}");
   } catch (error) {
-    console.error("JSON parse error", body);
-    res.status(400).json({ error: "JSON inválido" });
+    console.error("JSON parse error");
+    res.status(400).json({ error: "JSON invalido" });
     return;
   }
 
@@ -88,8 +153,8 @@ export default async function handler(req, res) {
 
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
-    console.error("OPENROUTER_API_KEY missing");
-    res.status(500).json({ error: "OPENROUTER_API_KEY no configurada" });
+    console.error("API key not configured");
+    res.status(500).json({ error: "Configuracion de servidor incompleta" });
     return;
   }
 
@@ -106,9 +171,13 @@ export default async function handler(req, res) {
       headers["X-Title"] = process.env.OPENROUTER_APP_NAME;
     }
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 25000);
+
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers,
+      signal: controller.signal,
       body: JSON.stringify({
         model: process.env.OPENROUTER_MODEL || "meta-llama/llama-3.1-8b-instruct",
         temperature: 0.4,
@@ -116,7 +185,7 @@ export default async function handler(req, res) {
           {
             role: "system",
             content:
-              "Eres el motor creativo de UniversoDú, un desierto inmersivo generado en Three.js. Recibirás descripciones breves y debes responder SOLO JSON con tres campos: summary (string concisa en español), tags (array con 1-4 valores del listado: cacti, rocks, oasis, ruins, crystals, mirage, fireflies, totems, structures, flora, portals, storm, sentinels, creatures, nomads) y entities (array). Cada elemento de entities debe ser un objeto con al menos: entity (uno de: structure, tower, tree, oasis, water, crystal, portal, fireflies, totem, rock, dune, bridge, monolith, flora, creature, sentinel, cacti, ruins, mirage, nomad, storm) y quantity (1-8). Puedes añadir campos opcionales como color (hex o nombre CSS), size (small, medium, large), floors, height, width, radius, spread o detail para ayudar al motor 3D a construir el objeto. Usa summary para describir el paisaje en una frase. No incluyas texto extra fuera del JSON.",
+              "Eres el motor creativo de UniversoDu, un desierto inmersivo generado en Three.js. Recibirás descripciones breves y debes responder SOLO JSON con tres campos: summary (string concisa en español), tags (array con 1-4 valores del listado: cacti, rocks, oasis, ruins, crystals, mirage, fireflies, totems, structures, flora, portals, storm, sentinels, creatures, nomads) y entities (array). Cada elemento de entities debe ser un objeto con al menos: entity (uno de: structure, tower, tree, oasis, water, crystal, portal, fireflies, totem, rock, dune, bridge, monolith, flora, creature, sentinel, cacti, ruins, mirage, nomad, storm) y quantity (1-8). Puedes añadir campos opcionales como color (hex o nombre CSS), size (small, medium, large), floors, height, width, radius, spread o detail para ayudar al motor 3D a construir el objeto. Usa summary para describir el paisaje en una frase. No incluyas texto extra fuera del JSON.",
           },
           {
             role: "user",
@@ -126,9 +195,12 @@ export default async function handler(req, res) {
       }),
     });
 
+    clearTimeout(timeoutId);
+
     if (!response.ok) {
       const errorText = await response.text();
-      res.status(response.status).json({ error: "OpenRouter error", detail: errorText });
+      console.error("OpenRouter error:", response.status);
+      res.status(response.status).json({ error: "Error del proveedor de IA" });
       return;
     }
 
@@ -166,8 +238,13 @@ export default async function handler(req, res) {
       entities: sanitizedEntities,
     });
   } catch (error) {
-    console.error("IA endpoint error", error);
-    res.status(500).json({ error: "Fallo al contactar OpenRouter", detail: error?.message || "unknown" });
+    if (error.name === "AbortError") {
+      console.error("Request timeout");
+      res.status(504).json({ error: "Tiempo de espera agotado" });
+    } else {
+      console.error("IA endpoint error");
+      res.status(500).json({ error: "Fallo al contactar el servicio de IA" });
+    }
   }
 }
 
@@ -242,7 +319,7 @@ function sanitizeEntities(rawEntities) {
 function normalizeSize(value) {
   if (typeof value !== "string") return "";
   const lower = value.toLowerCase().trim();
-  if (["tiny", "pequeño", "pequeno", "small", "mini"].includes(lower)) return "small";
+  if (["tiny", "pequeno", "pequeño", "small", "mini"].includes(lower)) return "small";
   if (["medium", "mediano", "media"].includes(lower)) return "medium";
   if (["huge", "gigantic", "large", "enorme", "gran", "grande", "massive"].includes(lower)) return "large";
   return "";
@@ -251,8 +328,7 @@ function normalizeSize(value) {
 function sanitizeColor(value) {
   if (typeof value !== "string") return "";
   const trimmed = value.trim().slice(0, 24);
-  if (!trimmed) return "";
-  return trimmed;
+  return trimmed || "";
 }
 
 function parseNumber(value) {
@@ -268,42 +344,6 @@ function clampNumber(value, min, max) {
   if (typeof value !== "number" || Number.isNaN(value)) return min;
   return Math.max(min, Math.min(max, value));
 }
-
-const ENTITY_ALIAS_MAP = {
-  structures: "structure",
-  building: "structure",
-  buildings: "structure",
-  towers: "tower",
-  trees: "tree",
-  cactus: "cacti",
-  cactuses: "cacti",
-  oasis: "oasis",
-  waters: "water",
-  lakes: "water",
-  crystals: "crystal",
-  portals: "portal",
-  gateways: "portal",
-  firefly: "fireflies",
-  fireflies: "fireflies",
-  totems: "totem",
-  rocks: "rock",
-  stones: "rock",
-  dunes: "dune",
-  bridges: "bridge",
-  monoliths: "monolith",
-  florae: "flora",
-  plants: "flora",
-  creatures: "creature",
-  sentinels: "sentinel",
-  guardians: "sentinel",
-  ruins: "ruins",
-  temples: "ruins",
-  mirages: "mirage",
-  visions: "mirage",
-  nomads: "nomad",
-  caravans: "nomad",
-  storms: "storm",
-};
 
 function normalizeEntityType(value) {
   if (typeof value !== "string") return "";

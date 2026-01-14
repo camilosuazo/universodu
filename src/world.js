@@ -1,84 +1,60 @@
+/**
+ * World module for UniversoDu
+ * Handles Three.js scene, rendering, controls, and object management
+ */
+
 import * as THREE from "three";
 import { PointerLockControls } from "three/addons/controls/PointerLockControls.js";
 import { createSpatialTrack } from "./audio.js";
+import { WORLD_CONFIG, DAY_STAGES } from "./constants.js";
+import {
+  getDuneMaterial,
+  getDustMaterial,
+  getSkyMaterial,
+  getPriestBaseMaterial,
+  getPriestRuneMaterial,
+  getPriestRobeMaterial,
+  getPriestSashMaterial,
+  getPriestHeadMaterial,
+  getPriestStaffMaterial,
+  getPriestHaloMaterial,
+  getPriestFlameMaterial,
+  getPriestOrbMaterial,
+  disposeMaterialCache,
+  getCloudMaterial,
+  getSunDiskMaterial,
+} from "./materials.js";
+import {
+  tagLabel,
+  TAG_SPAWNERS,
+  ENTITY_SPAWNERS,
+  spawnMirage,
+} from "./spawners.js";
 
-const MAX_PROMPT_OBJECTS = 120;
-const WALK_SPEED = 42;
-
-function tagLabel(tag) {
-  switch (tag) {
-    case "cacti":
-      return "Cactáceas lumínicas";
-    case "rocks":
-      return "Cantiles pétreos";
-    case "oasis":
-      return "Oasis nebuloso";
-    case "ruins":
-      return "Ruinas místicas";
-    case "crystals":
-      return "Coral de cristal";
-    case "mirage":
-      return "Espejismo solar";
-    case "fireflies":
-      return "Luciérnagas sónicas";
-    case "totems":
-      return "Tótems del viento";
-    default:
-      return "Nuevo relieve";
-  }
-}
+const { MAX_PROMPT_OBJECTS, WALK_SPEED, CAMERA_HEIGHT, TERRAIN_SIZE, DUST_PARTICLE_COUNT } = WORLD_CONFIG;
 
 const BASE_URL =
   (typeof import.meta !== "undefined" && import.meta.env?.BASE_URL) || "/";
+
 const PRIEST_TRACK_URL =
   (typeof window !== "undefined" && window.UNIVERSODU_PRIEST_TRACK) ||
   (typeof import.meta !== "undefined" && import.meta.env?.VITE_PRIEST_TRACK) ||
   withBasePath("/music/sacerdote-theme.mp3");
 
-const DAY_STAGES = {
-  amanecer: {
-    skyColor: 0xfef5e8,
-    fogColor: 0xf1dcb7,
-    fogDensity: 0.0008,
-    sunColor: 0xffe5b5,
-    sunIntensity: 1.35,
-    ambientIntensity: 0.45,
-  },
-  manana: {
-    skyColor: 0xfdf6f1,
-    fogColor: 0xf5e9ce,
-    fogDensity: 0.0007,
-    sunColor: 0xfff0c3,
-    sunIntensity: 1.6,
-    ambientIntensity: 0.6,
-  },
-  tarde: {
-    skyColor: 0xffe7c6,
-    fogColor: 0xf0caa2,
-    fogDensity: 0.0009,
-    sunColor: 0xffc16c,
-    sunIntensity: 1.4,
-    ambientIntensity: 0.5,
-  },
-  atardecer: {
-    skyColor: 0xf6b098,
-    fogColor: 0xd39378,
-    fogDensity: 0.0012,
-    sunColor: 0xf86c4f,
-    sunIntensity: 1.1,
-    ambientIntensity: 0.35,
-  },
-  noche: {
-    skyColor: 0x0d1220,
-    fogColor: 0x0b0f1c,
-    fogDensity: 0.0015,
-    sunColor: 0x6ab0ff,
-    sunIntensity: 0.35,
-    ambientIntensity: 0.2,
-  },
-};
+function withBasePath(assetPath) {
+  if (!assetPath) return assetPath;
+  if (assetPath.startsWith("http://") || assetPath.startsWith("https://") || assetPath.startsWith("//")) {
+    return assetPath;
+  }
+  const cleanedBase = BASE_URL.endsWith("/") ? BASE_URL.slice(0, -1) : BASE_URL;
+  const normalized = assetPath.startsWith("/") || !cleanedBase ? assetPath : `/${assetPath}`;
+  return `${cleanedBase}${normalized}`;
+}
+
+export { tagLabel };
 
 export function createWorld(canvas, { onPointerLockChange, onPointerLockError }) {
+  // Renderer setup
   const renderer = new THREE.WebGLRenderer({
     canvas,
     antialias: true,
@@ -89,18 +65,21 @@ export function createWorld(canvas, { onPointerLockChange, onPointerLockError })
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
 
+  // Scene setup
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0xf4e4c5);
-  scene.fog = new THREE.FogExp2(0xf1dcb7, 0.0008);
+  scene.background = new THREE.Color(0x87ceeb); // Azul cielo claro
+  scene.fog = new THREE.FogExp2(0xc9b896, 0.0005); // Niebla más suave y menos densa
 
+  // Camera setup
   const camera = new THREE.PerspectiveCamera(
     70,
     canvas.clientWidth / canvas.clientHeight,
     0.1,
     2000
   );
-  camera.position.set(0, 3.2, 8);
+  camera.position.set(0, CAMERA_HEIGHT, 8);
 
+  // Controls
   const controls = new PointerLockControls(camera, document.body);
   controls.addEventListener("lock", () => {
     onPointerLockChange?.(true);
@@ -109,6 +88,7 @@ export function createWorld(canvas, { onPointerLockChange, onPointerLockError })
     onPointerLockChange?.(false);
   });
 
+  // Lighting
   const ambient = new THREE.AmbientLight(0xfef1d8, 0.45);
   scene.add(ambient);
   const sun = new THREE.DirectionalLight(0xffe5b5, 1.35);
@@ -123,47 +103,73 @@ export function createWorld(canvas, { onPointerLockChange, onPointerLockError })
   rim.position.set(120, 60, 80);
   scene.add(rim);
 
+  // Sky dome
   const sky = new THREE.Mesh(
     new THREE.SphereGeometry(1200, 32, 32),
-    new THREE.MeshBasicMaterial({
-      color: 0xfef5e8,
-      transparent: true,
-      opacity: 0.97,
-      side: THREE.BackSide,
-    })
+    getSkyMaterial()
   );
   scene.add(sky);
 
+  // Starfield
+  const starfield = createStarfield();
+  scene.add(starfield);
+
+  // Moon
+  const moon = createMoon();
+  scene.add(moon);
+
+  // Planets in the sky
+  const planets = createPlanets();
+  scene.add(planets);
+
+  // Terrain - added first to ensure proper rendering
   const dunes = createDunes();
   scene.add(dunes);
 
+  // Dust particles
   const dustLayer = createDust();
   scene.add(dustLayer.points);
 
+  // Atmospheric effects (optional, added after terrain)
+  const sunDisk = createSunDisk();
+  scene.add(sunDisk);
+
+  const clouds = createClouds();
+  scene.add(clouds);
+
+  // Priest shrine
   const priestShrine = createPriestShrine({
     scene,
     camera,
     trackUrl: PRIEST_TRACK_URL,
   });
 
+  // Prompt objects management
   const promptGroup = new THREE.Group();
   scene.add(promptGroup);
   const promptObjects = [];
 
+  // Animated objects tracking
+  const animatedObjects = [];
+
+  // Animation state
   const clock = new THREE.Clock();
   const velocity = new THREE.Vector3();
   const direction = new THREE.Vector3();
   const keys = { forward: false, backward: false, left: false, right: false };
-  const touchLook = { active: false, startX: 0, startY: 0, yaw: 0, pitch: 0 };
-  const virtualJoystick = { active: false, startX: 0, startY: 0, deltaX: 0, deltaY: 0 };
+  const touchLook = { active: false, startX: 0, startY: 0 };
 
-  function requestPointerLock() {
-    try {
-      priestShrine?.unlockAudio?.();
-      controls.lock();
-    } catch (error) {
-      onPointerLockError?.("Pointer Lock no disponible en este navegador.");
-    }
+  // Visibility state for tab optimization
+  let isTabVisible = true;
+  let animationFrameId = null;
+
+  // Event handlers with references for cleanup
+  function handleKeyDown(event) {
+    handleKey(event, true);
+  }
+
+  function handleKeyUp(event) {
+    handleKey(event, false);
   }
 
   function handleKey(event, isPressed) {
@@ -189,73 +195,38 @@ export function createWorld(canvas, { onPointerLockChange, onPointerLockError })
     }
   }
 
-  document.addEventListener("keydown", (event) => handleKey(event, true));
-  document.addEventListener("keyup", (event) => handleKey(event, false));
-
-  function bindTouchControls() {
-    const joystick = document.getElementById("joystick" );
-    const joystickThumb = document.getElementById("joystick-thumb");
-    const lookZone = document.getElementById("look-zone");
-    if (joystick && joystickThumb) {
-      const handleMove = (clientX, clientY) => {
-        const rect = joystick.getBoundingClientRect();
-        const relX = clientX - (rect.left + rect.width / 2);
-        const relY = clientY - (rect.top + rect.height / 2);
-        const maxRadius = rect.width / 2;
-        const distance = Math.min(Math.sqrt(relX * relX + relY * relY), maxRadius);
-        const angle = Math.atan2(relY, relX);
-        joystickThumb.style.transform = `translate(${Math.cos(angle) * distance}px, ${Math.sin(angle) * distance}px)`;
-        const normalizedX = distance ? Math.cos(angle) * (distance / maxRadius) : 0;
-        const normalizedY = distance ? Math.sin(angle) * (distance / maxRadius) : 0;
-        keys.forward = normalizedY < -0.2;
-        keys.backward = normalizedY > 0.2;
-        keys.left = normalizedX < -0.2;
-        keys.right = normalizedX > 0.2;
-      };
-      const resetThumb = () => {
-        joystickThumb.style.transform = "translate(0,0)";
-        keys.forward = keys.backward = keys.left = keys.right = false;
-      };
-      joystick.addEventListener("touchstart", (event) => {
-        event.preventDefault();
-        const touch = event.touches[0];
-        handleMove(touch.clientX, touch.clientY);
-      }, { passive: false });
-      joystick.addEventListener("touchmove", (event) => {
-        event.preventDefault();
-        const touch = event.touches[0];
-        handleMove(touch.clientX, touch.clientY);
-      }, { passive: false });
-      joystick.addEventListener("touchend", () => {
-        resetThumb();
-      });
-    }
-
-    if (lookZone) {
-      lookZone.addEventListener("touchstart", (event) => {
-        const touch = event.touches[0];
-        touchLook.active = true;
-        touchLook.startX = touch.clientX;
-        touchLook.startY = touch.clientY;
-      });
-      lookZone.addEventListener("touchmove", (event) => {
-        if (!touchLook.active) return;
-        const touch = event.touches[0];
-        const deltaX = touch.clientX - touchLook.startX;
-        const deltaY = touch.clientY - touchLook.startY;
-        touchLook.startX = touch.clientX;
-        touchLook.startY = touch.clientY;
-        controls.getObject().rotation.y -= deltaX * 0.003;
-        camera.rotation.x -= deltaY * 0.002;
-        camera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, camera.rotation.x));
-      }, { passive: false });
-      lookZone.addEventListener("touchend", () => {
-        touchLook.active = false;
-      });
+  function handleVisibilityChange() {
+    isTabVisible = !document.hidden;
+    if (isTabVisible && !animationFrameId) {
+      clock.getDelta(); // Reset delta to avoid jump
+      animate();
     }
   }
 
-  bindTouchControls();
+  function handleResize() {
+    const { clientWidth, clientHeight } = canvas;
+    camera.aspect = clientWidth / clientHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(clientWidth, clientHeight, false);
+  }
+
+  // Register event listeners
+  document.addEventListener("keydown", handleKeyDown);
+  document.addEventListener("keyup", handleKeyUp);
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+  window.addEventListener("resize", handleResize);
+
+  // Touch controls
+  const touchCleanupFns = bindTouchControls(keys, touchLook, controls, camera);
+
+  function requestPointerLock() {
+    try {
+      priestShrine?.unlockAudio?.();
+      controls.lock();
+    } catch (error) {
+      onPointerLockError?.("Pointer Lock no disponible en este navegador.");
+    }
+  }
 
   function updateMovement(delta) {
     velocity.x -= velocity.x * 4 * delta;
@@ -277,34 +248,50 @@ export function createWorld(canvas, { onPointerLockChange, onPointerLockError })
       controls.moveForward(-velocity.z * delta);
     }
 
-    camera.position.y = THREE.MathUtils.lerp(camera.position.y, 3.2, 0.1);
+    camera.position.y = THREE.MathUtils.lerp(camera.position.y, CAMERA_HEIGHT, 0.1);
   }
 
   function animate() {
+    // Stop animation if tab is hidden
+    if (!isTabVisible) {
+      animationFrameId = null;
+      return;
+    }
+
     const delta = Math.min(clock.getDelta(), 0.1);
+    const time = performance.now() * 0.001;
     updateDust(dustLayer, delta);
+    updateClouds(clouds, delta, time);
+    updateAnimatedObjects(animatedObjects, time);
     updateMovement(delta);
     priestShrine?.update?.();
     renderer.render(scene, camera);
-    requestAnimationFrame(animate);
+    animationFrameId = requestAnimationFrame(animate);
   }
+
+  // Start animation
   animate();
 
-  function resize() {
-    const { clientWidth, clientHeight } = canvas;
-    camera.aspect = clientWidth / clientHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(clientWidth, clientHeight, false);
-  }
-
-  window.addEventListener("resize", resize);
-
+  // Object registration with pool management
   function registerPromptObject(object) {
     promptObjects.push(object);
     promptGroup.add(object);
+
+    // Scan for animated objects
+    object.traverse?.((child) => {
+      if (child.userData?.animated) {
+        animatedObjects.push(child);
+      }
+    });
+
     if (promptObjects.length > MAX_PROMPT_OBJECTS) {
       const stale = promptObjects.shift();
       if (stale) {
+        // Remove animated references
+        stale.traverse?.((child) => {
+          const idx = animatedObjects.indexOf(child);
+          if (idx !== -1) animatedObjects.splice(idx, 1);
+        });
         promptGroup.remove(stale);
         disposeObject(stale);
       }
@@ -323,6 +310,19 @@ export function createWorld(canvas, { onPointerLockChange, onPointerLockError })
     const num = Number(value);
     if (!Number.isFinite(num)) return 1;
     return THREE.MathUtils.clamp(Math.round(num), 1, 8);
+  }
+
+  function specSizeToScale(sizeValue, explicitScale) {
+    if (typeof explicitScale === "number" && Number.isFinite(explicitScale)) {
+      return THREE.MathUtils.clamp(explicitScale, 0.4, 4);
+    }
+    if (typeof sizeValue === "string") {
+      const value = sizeValue.toLowerCase();
+      if (["tiny", "small", "pequeno", "pequeño"].includes(value)) return 0.7;
+      if (["huge", "large", "gigantic", "enorme", "grand", "grande"].includes(value)) return 1.6;
+      if (["colossal", "gigante"].includes(value)) return 2.2;
+    }
+    return 1;
   }
 
   function instructionDistanceRange(spec = {}) {
@@ -344,84 +344,35 @@ export function createWorld(canvas, { onPointerLockChange, onPointerLockError })
   }
 
   function spawnHandlers(tag) {
-    switch (tag) {
-      case "cacti":
-        registerPromptObject(spawnCacti(randomAroundCamera()));
-        return;
-      case "rocks":
-        registerPromptObject(spawnRocks(randomAroundCamera(50, 160)));
-        return;
-      case "oasis":
-        registerPromptObject(spawnOasis(randomAroundCamera(30, 120)));
-        return;
-      case "ruins":
-        registerPromptObject(spawnRuins(randomAroundCamera(80, 200)));
-        return;
-      case "crystals":
-        registerPromptObject(spawnCrystals(randomAroundCamera(60, 170)));
-        return;
-      case "mirage":
-        registerPromptObject(spawnMirage(randomAroundCamera(70, 170)));
-        return;
-      case "fireflies":
-        registerPromptObject(spawnFireflies(randomAroundCamera(30, 80)));
-        return;
-      case "totems":
-        registerPromptObject(spawnTotems(randomAroundCamera(60, 160)));
-        return;
-      case "creatures":
-        registerPromptObject(spawnCreatures(randomAroundCamera(20, 80)));
-        return;
-      case "nomads":
-        registerPromptObject(spawnNomads(randomAroundCamera(40, 120)));
-        return;
-      case "structures":
-        registerPromptObject(spawnStructures(randomAroundCamera(90, 200)));
-        return;
-      case "storm":
-        registerPromptObject(spawnStorm(randomAroundCamera(60, 180)));
-        return;
-      case "flora":
-        registerPromptObject(spawnFlora(randomAroundCamera(30, 110)));
-        return;
-      case "portals":
-        registerPromptObject(spawnPortals(randomAroundCamera(70, 150)));
-        return;
-      case "sentinels":
-        registerPromptObject(spawnSentinels(randomAroundCamera(80, 160)));
-        return;
-      default:
-        registerPromptObject(spawnMirage(randomAroundCamera()));
+    const spawner = TAG_SPAWNERS[tag];
+    if (spawner) {
+      const distanceRanges = {
+        cacti: [40, 140],
+        rocks: [50, 160],
+        oasis: [30, 120],
+        ruins: [80, 200],
+        crystals: [60, 170],
+        mirage: [70, 170],
+        fireflies: [30, 80],
+        totems: [60, 160],
+        creatures: [20, 80],
+        nomads: [40, 120],
+        structures: [90, 200],
+        storm: [60, 180],
+        flora: [30, 110],
+        portals: [70, 150],
+        sentinels: [80, 160],
+      };
+      const [minDist, maxDist] = distanceRanges[tag] || [40, 140];
+      registerPromptObject(spawner(randomAroundCamera(minDist, maxDist)));
+    } else {
+      registerPromptObject(spawnMirage(randomAroundCamera()));
     }
   }
 
   function spawnFromTags(tags) {
     tags.forEach((tag) => spawnHandlers(tag));
   }
-
-  const ENTITY_SPAWNERS = {
-    structure: spawnInstructionStructure,
-    tower: spawnInstructionStructure,
-    tree: spawnInstructionTree,
-    oasis: spawnInstructionOasis,
-    water: spawnInstructionWater,
-    crystal: spawnInstructionCrystal,
-    portal: spawnInstructionPortal,
-    fireflies: spawnInstructionFireflies,
-    totem: spawnInstructionTotem,
-    rock: spawnInstructionRock,
-    dune: spawnInstructionDune,
-    bridge: spawnInstructionBridge,
-    monolith: spawnInstructionMonolith,
-    flora: spawnInstructionFlora,
-    creature: spawnInstructionCreature,
-    sentinel: spawnInstructionSentinel,
-    cacti: spawnInstructionCacti,
-    ruins: spawnInstructionRuins,
-    mirage: spawnInstructionMirage,
-    nomad: spawnInstructionNomads,
-    storm: spawnInstructionStorm,
-  };
 
   function spawnFromEntities(entities = []) {
     entities.forEach((entity) => {
@@ -463,7 +414,47 @@ export function createWorld(canvas, { onPointerLockChange, onPointerLockError })
     sky.material.color.set(settings.skyColor);
   }
 
-  // Paisaje base inicial
+  // Cleanup function
+  function dispose() {
+    // Stop animation loop
+    if (animationFrameId) {
+      cancelAnimationFrame(animationFrameId);
+      animationFrameId = null;
+    }
+
+    // Remove event listeners
+    document.removeEventListener("keydown", handleKeyDown);
+    document.removeEventListener("keyup", handleKeyUp);
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
+    window.removeEventListener("resize", handleResize);
+
+    // Cleanup touch controls
+    touchCleanupFns.forEach((fn) => fn());
+
+    // Dispose prompt objects
+    promptObjects.forEach((obj) => disposeObject(obj));
+    promptObjects.length = 0;
+
+    // Dispose scene objects
+    scene.traverse((child) => {
+      if (child.geometry) child.geometry.dispose();
+      if (child.material) {
+        if (Array.isArray(child.material)) {
+          child.material.forEach((mat) => mat.dispose?.());
+        } else {
+          child.material.dispose?.();
+        }
+      }
+    });
+
+    // Dispose material cache
+    disposeMaterialCache();
+
+    // Dispose renderer
+    renderer.dispose();
+  }
+
+  // Initial landscape
   spawnFromTags(new Set(["rocks", "cacti", "mirage"]));
 
   return {
@@ -471,39 +462,438 @@ export function createWorld(canvas, { onPointerLockChange, onPointerLockError })
     spawnFromTags,
     spawnFromEntities,
     applyPromptPlan,
-    resize,
+    resize: handleResize,
     setDayStage,
+    dispose,
   };
 }
 
+// ========== Helper Functions ==========
+
 function createDunes() {
-  const geometry = new THREE.PlaneGeometry(2400, 2400, 240, 240);
+  const geometry = new THREE.PlaneGeometry(TERRAIN_SIZE, TERRAIN_SIZE, 200, 200);
   const position = geometry.attributes.position;
+
+  // Simple dune noise
   for (let i = 0; i < position.count; i += 1) {
     const x = position.getX(i);
     const y = position.getY(i);
     const noise =
-      Math.sin(x * 0.004) * 2 + Math.cos(y * 0.003) * 1.9 + (Math.random() - 0.5);
+      Math.sin(x * 0.004) * 2 +
+      Math.cos(y * 0.003) * 1.9 +
+      Math.sin(x * 0.012 + y * 0.008) * 0.8 +
+      (Math.random() - 0.5) * 0.3;
     position.setZ(i, noise);
   }
+
   geometry.computeVertexNormals();
+
+  // Create material directly to ensure it works
   const material = new THREE.MeshStandardMaterial({
-    color: 0xe3c086,
-    roughness: 0.95,
-    metalness: 0.05,
+    color: 0xd4a56a,
+    roughness: 0.9,
+    metalness: 0,
     flatShading: true,
+    side: THREE.DoubleSide,
   });
+
   const mesh = new THREE.Mesh(geometry, material);
   mesh.rotation.x = -Math.PI / 2;
+  mesh.position.y = 0;
   mesh.receiveShadow = true;
   return mesh;
 }
 
+function createPlanets() {
+  const group = new THREE.Group();
+
+  // Red planet with craters texture effect
+  const redPlanet = new THREE.Mesh(
+    new THREE.SphereGeometry(40, 32, 32),
+    new THREE.MeshStandardMaterial({
+      color: 0xff4444,
+      roughness: 0.8,
+      metalness: 0.1,
+      emissive: 0x331111,
+    })
+  );
+  redPlanet.position.set(-300, 400, -600);
+  group.add(redPlanet);
+
+  // Red planet glow
+  const redGlow = new THREE.Mesh(
+    new THREE.SphereGeometry(50, 32, 32),
+    new THREE.MeshBasicMaterial({ color: 0xff6666, transparent: true, opacity: 0.3 })
+  );
+  redGlow.position.copy(redPlanet.position);
+  group.add(redGlow);
+
+  // Blue planet (gas giant with rings)
+  const bluePlanet = new THREE.Mesh(
+    new THREE.SphereGeometry(55, 32, 32),
+    new THREE.MeshStandardMaterial({
+      color: 0x4488ff,
+      roughness: 0.5,
+      metalness: 0.2,
+      emissive: 0x112244,
+    })
+  );
+  bluePlanet.position.set(400, 350, -500);
+  group.add(bluePlanet);
+
+  // Blue planet rings (like Saturn)
+  const ringGeometry = new THREE.RingGeometry(70, 110, 64);
+  const ringMaterial = new THREE.MeshBasicMaterial({
+    color: 0x88aaff,
+    transparent: true,
+    opacity: 0.5,
+    side: THREE.DoubleSide,
+  });
+  const rings = new THREE.Mesh(ringGeometry, ringMaterial);
+  rings.position.copy(bluePlanet.position);
+  rings.rotation.x = Math.PI / 2.5;
+  rings.rotation.y = 0.3;
+  group.add(rings);
+
+  // Blue planet glow
+  const blueGlow = new THREE.Mesh(
+    new THREE.SphereGeometry(65, 32, 32),
+    new THREE.MeshBasicMaterial({ color: 0x66aaff, transparent: true, opacity: 0.2 })
+  );
+  blueGlow.position.copy(bluePlanet.position);
+  group.add(blueGlow);
+
+  // Green planet
+  const greenPlanet = new THREE.Mesh(
+    new THREE.SphereGeometry(35, 32, 32),
+    new THREE.MeshStandardMaterial({
+      color: 0x44ff44,
+      roughness: 0.6,
+      metalness: 0.1,
+      emissive: 0x113311,
+    })
+  );
+  greenPlanet.position.set(100, 500, -700);
+  group.add(greenPlanet);
+
+  // Green planet glow
+  const greenGlow = new THREE.Mesh(
+    new THREE.SphereGeometry(45, 32, 32),
+    new THREE.MeshBasicMaterial({ color: 0x66ff66, transparent: true, opacity: 0.25 })
+  );
+  greenGlow.position.copy(greenPlanet.position);
+  group.add(greenGlow);
+
+  return group;
+}
+
+function createStarfield() {
+  const starsCount = 2000;
+  const positions = new Float32Array(starsCount * 3);
+  const colors = new Float32Array(starsCount * 3);
+  const sizes = new Float32Array(starsCount);
+
+  for (let i = 0; i < starsCount; i++) {
+    // Distribute stars on a large sphere
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(2 * Math.random() - 1);
+    const radius = 900 + Math.random() * 200;
+
+    positions[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
+    positions[i * 3 + 1] = Math.abs(radius * Math.cos(phi)) + 50; // Only above horizon
+    positions[i * 3 + 2] = radius * Math.sin(phi) * Math.sin(theta);
+
+    // Varying star colors (white, blue-white, yellow)
+    const colorChoice = Math.random();
+    if (colorChoice < 0.7) {
+      colors[i * 3] = 1; colors[i * 3 + 1] = 1; colors[i * 3 + 2] = 1; // White
+    } else if (colorChoice < 0.85) {
+      colors[i * 3] = 0.8; colors[i * 3 + 1] = 0.9; colors[i * 3 + 2] = 1; // Blue-white
+    } else {
+      colors[i * 3] = 1; colors[i * 3 + 1] = 0.95; colors[i * 3 + 2] = 0.8; // Yellow
+    }
+
+    sizes[i] = 1 + Math.random() * 2;
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+  const material = new THREE.PointsMaterial({
+    size: 2,
+    vertexColors: true,
+    transparent: true,
+    opacity: 0.8,
+  });
+
+  return new THREE.Points(geometry, material);
+}
+
+function createMoon() {
+  const group = new THREE.Group();
+
+  // Moon
+  const moon = new THREE.Mesh(
+    new THREE.SphereGeometry(30, 32, 32),
+    new THREE.MeshStandardMaterial({
+      color: 0xe8e8e0,
+      roughness: 0.9,
+      metalness: 0,
+      emissive: 0x222222,
+    })
+  );
+  moon.position.set(-500, 300, -400);
+  group.add(moon);
+
+  // Moon glow
+  const moonGlow = new THREE.Mesh(
+    new THREE.SphereGeometry(40, 32, 32),
+    new THREE.MeshBasicMaterial({
+      color: 0xffffee,
+      transparent: true,
+      opacity: 0.15,
+    })
+  );
+  moonGlow.position.copy(moon.position);
+  group.add(moonGlow);
+
+  return group;
+}
+
+function createSunDisk() {
+  const group = new THREE.Group();
+
+  // Main sun disk
+  const sun = new THREE.Mesh(
+    new THREE.CircleGeometry(60, 32),
+    getSunDiskMaterial()
+  );
+  sun.position.set(-400, 600, -800);
+  sun.lookAt(0, 0, 0);
+  group.add(sun);
+
+  // Sun glow
+  const glowMat = getSunDiskMaterial().clone();
+  glowMat.opacity = 0.3;
+  const glow = new THREE.Mesh(
+    new THREE.CircleGeometry(120, 32),
+    glowMat
+  );
+  glow.position.copy(sun.position);
+  glow.lookAt(0, 0, 0);
+  group.add(glow);
+
+  // Outer haze
+  const hazeMat = getSunDiskMaterial().clone();
+  hazeMat.opacity = 0.12;
+  const haze = new THREE.Mesh(
+    new THREE.CircleGeometry(200, 32),
+    hazeMat
+  );
+  haze.position.copy(sun.position);
+  haze.lookAt(0, 0, 0);
+  group.add(haze);
+
+  return group;
+}
+
+function createSunRays() {
+  const group = new THREE.Group();
+  const rayCount = 8;
+
+  for (let i = 0; i < rayCount; i++) {
+    const angle = (i / rayCount) * Math.PI * 2;
+    const length = 300 + Math.random() * 200;
+    const width = 15 + Math.random() * 25;
+
+    const rayGeo = new THREE.PlaneGeometry(width, length);
+    const ray = new THREE.Mesh(rayGeo, getSunRayMaterial());
+
+    ray.position.set(
+      -400 + Math.cos(angle) * 100,
+      600 + Math.sin(angle) * 50,
+      -800
+    );
+    ray.rotation.z = angle;
+    ray.lookAt(0, 300, 0);
+
+    group.add(ray);
+  }
+
+  return group;
+}
+
+function updateSunRays(rays, time) {
+  rays.children.forEach((ray, i) => {
+    ray.material.opacity = 0.08 + Math.sin(time * 0.5 + i * 0.8) * 0.04;
+  });
+}
+
+function createClouds() {
+  const group = new THREE.Group();
+  const cloudCount = 25;
+
+  for (let i = 0; i < cloudCount; i++) {
+    const cloud = createSingleCloud();
+    const angle = Math.random() * Math.PI * 2;
+    const distance = 300 + Math.random() * 600;
+
+    cloud.position.set(
+      Math.cos(angle) * distance,
+      180 + Math.random() * 120,
+      Math.sin(angle) * distance
+    );
+    cloud.rotation.y = Math.random() * Math.PI;
+    cloud.userData.speed = 0.5 + Math.random() * 1.5;
+    cloud.userData.angle = angle;
+    cloud.userData.distance = distance;
+
+    group.add(cloud);
+  }
+
+  return group;
+}
+
+function createSingleCloud() {
+  const cloud = new THREE.Group();
+  const puffCount = 4 + Math.floor(Math.random() * 4);
+
+  for (let i = 0; i < puffCount; i++) {
+    const size = 20 + Math.random() * 40;
+    const puff = new THREE.Mesh(
+      new THREE.SphereGeometry(size, 8, 6),
+      getCloudMaterial()
+    );
+    puff.position.set(
+      (Math.random() - 0.5) * 60,
+      (Math.random() - 0.5) * 15,
+      (Math.random() - 0.5) * 40
+    );
+    puff.scale.y = 0.4 + Math.random() * 0.3;
+    cloud.add(puff);
+  }
+
+  return cloud;
+}
+
+function updateClouds(clouds, delta, time) {
+  clouds.children.forEach((cloud) => {
+    cloud.userData.angle += delta * 0.002 * cloud.userData.speed;
+    cloud.position.x = Math.cos(cloud.userData.angle) * cloud.userData.distance;
+    cloud.position.z = Math.sin(cloud.userData.angle) * cloud.userData.distance;
+
+    // Gentle bobbing
+    cloud.position.y += Math.sin(time * 0.3 + cloud.userData.angle) * 0.02;
+  });
+}
+
+function createHeatWaves() {
+  const group = new THREE.Group();
+  const waveCount = 12;
+
+  for (let i = 0; i < waveCount; i++) {
+    const width = 80 + Math.random() * 120;
+    const wave = new THREE.Mesh(
+      new THREE.PlaneGeometry(width, 8),
+      getHeatWaveMaterial()
+    );
+
+    const angle = (i / waveCount) * Math.PI * 2;
+    const distance = 60 + Math.random() * 100;
+
+    wave.position.set(
+      Math.cos(angle) * distance,
+      2 + Math.random() * 3,
+      Math.sin(angle) * distance
+    );
+    wave.rotation.x = -Math.PI / 2 + 0.1;
+    wave.userData.baseY = wave.position.y;
+    wave.userData.phase = Math.random() * Math.PI * 2;
+
+    group.add(wave);
+  }
+
+  return group;
+}
+
+function updateHeatWaves(waves, time) {
+  waves.children.forEach((wave) => {
+    wave.position.y = wave.userData.baseY + Math.sin(time * 2 + wave.userData.phase) * 0.5;
+    wave.material.opacity = 0.05 + Math.sin(time * 3 + wave.userData.phase) * 0.03;
+    wave.scale.x = 1 + Math.sin(time * 1.5 + wave.userData.phase) * 0.1;
+  });
+}
+
+function updateAnimatedObjects(objects, time) {
+  for (const obj of objects) {
+    const anim = obj.userData;
+    if (!anim.animated) continue;
+
+    switch (anim.animationType) {
+      case "sway": {
+        // Gentle swaying for vegetation
+        const baseRotation = anim.baseRotation || { x: 0, y: 0, z: 0 };
+        const speed = anim.swaySpeed || 1;
+        const amount = anim.swayAmount || 0.1;
+        const phase = anim.phase || 0;
+        obj.rotation.x = baseRotation.x + Math.sin(time * speed + phase) * amount;
+        obj.rotation.z = baseRotation.z + Math.cos(time * speed * 0.8 + phase) * amount * 0.6;
+        break;
+      }
+      case "float": {
+        // Floating up and down
+        const baseY = anim.baseY || obj.position.y;
+        const floatSpeed = anim.floatSpeed || 1;
+        const floatAmount = anim.floatAmount || 0.5;
+        const phase = anim.phase || 0;
+        obj.position.y = baseY + Math.sin(time * floatSpeed + phase) * floatAmount;
+        break;
+      }
+      case "rotate": {
+        // Continuous rotation
+        const rotateSpeed = anim.rotateSpeed || 1;
+        obj.rotation.y += 0.016 * rotateSpeed;
+        break;
+      }
+      case "pulse": {
+        // Scale pulsing
+        const baseScale = anim.baseScale || 1;
+        const pulseSpeed = anim.pulseSpeed || 1;
+        const pulseAmount = anim.pulseAmount || 0.1;
+        const phase = anim.phase || 0;
+        const s = baseScale + Math.sin(time * pulseSpeed + phase) * pulseAmount;
+        obj.scale.set(s, s, s);
+        break;
+      }
+      case "flicker": {
+        // Opacity flicker for flames/lights
+        if (obj.material) {
+          const baseOpacity = anim.baseOpacity || 0.7;
+          const flickerAmount = anim.flickerAmount || 0.2;
+          obj.material.opacity = baseOpacity + Math.sin(time * 8 + Math.random() * 0.5) * flickerAmount;
+        }
+        break;
+      }
+      case "bob": {
+        // Bobbing motion (different from float, more bouncy)
+        const baseY = anim.baseY || obj.position.y;
+        const bobSpeed = anim.bobSpeed || 2;
+        const bobAmount = anim.bobAmount || 0.3;
+        const phase = anim.phase || 0;
+        obj.position.y = baseY + Math.abs(Math.sin(time * bobSpeed + phase)) * bobAmount;
+        break;
+      }
+      default:
+        break;
+    }
+  }
+}
+
 function createDust() {
-  const particleCount = 2000;
-  const positions = new Float32Array(particleCount * 3);
-  const speeds = new Float32Array(particleCount);
-  for (let i = 0; i < particleCount; i += 1) {
+  const positions = new Float32Array(DUST_PARTICLE_COUNT * 3);
+  const speeds = new Float32Array(DUST_PARTICLE_COUNT);
+  for (let i = 0; i < DUST_PARTICLE_COUNT; i += 1) {
     positions[i * 3] = (Math.random() - 0.5) * 1200;
     positions[i * 3 + 1] = Math.random() * 90 + 5;
     positions[i * 3 + 2] = (Math.random() - 0.5) * 1200;
@@ -511,14 +901,7 @@ function createDust() {
   }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-  const material = new THREE.PointsMaterial({
-    color: 0xffffff,
-    size: 2,
-    transparent: true,
-    opacity: 0.18,
-    depthWrite: false,
-  });
-  const points = new THREE.Points(geometry, material);
+  const points = new THREE.Points(geometry, getDustMaterial());
   points.renderOrder = 2;
   return { points, positions, speeds };
 }
@@ -536,415 +919,6 @@ function updateDust(layer, delta) {
   layer.points.geometry.attributes.position.needsUpdate = true;
 }
 
-function spawnCacti(center) {
-  const group = new THREE.Group();
-  const mat = new THREE.MeshStandardMaterial({
-    color: 0x1e8c4e,
-    emissive: 0x062515,
-    roughness: 0.6,
-    metalness: 0.1,
-  });
-  const count = 3 + Math.floor(Math.random() * 3);
-  for (let i = 0; i < count; i += 1) {
-    const scale = 0.7 + Math.random() * 0.9;
-    const cactus = new THREE.Group();
-    const stem = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.7 * scale, 0.9 * scale, 8 * scale, 12),
-      mat
-    );
-    stem.castShadow = true;
-    stem.position.y = 4 * scale;
-    cactus.add(stem);
-
-    const branchGeo = new THREE.CylinderGeometry(0.4 * scale, 0.4 * scale, 4 * scale, 10);
-    const branchLeft = new THREE.Mesh(branchGeo, mat);
-    branchLeft.rotation.z = Math.PI / 2.5;
-    branchLeft.position.set(-1.6 * scale, 3.6 * scale, 0);
-    cactus.add(branchLeft);
-
-    const branchRight = branchLeft.clone();
-    branchRight.rotation.z = -Math.PI / 2.7;
-    branchRight.position.set(1.7 * scale, 4.4 * scale, 0.3 * scale);
-    cactus.add(branchRight);
-
-    const glow = new THREE.Mesh(
-      new THREE.SphereGeometry(0.5 * scale, 10, 10),
-      new THREE.MeshBasicMaterial({
-        color: 0xfff7d6,
-        transparent: true,
-        opacity: 0.8,
-      })
-    );
-    glow.position.y = 8.6 * scale;
-    cactus.add(glow);
-
-    const offset = new THREE.Vector3(
-      (Math.random() - 0.5) * 18,
-      0,
-      (Math.random() - 0.5) * 18
-    );
-    cactus.position.copy(center).add(offset);
-    group.add(cactus);
-  }
-  return group;
-}
-
-function spawnRocks(center) {
-  const group = new THREE.Group();
-  const mat = new THREE.MeshStandardMaterial({
-    color: 0x7b6753,
-    roughness: 1,
-    flatShading: true,
-  });
-  const count = 4 + Math.floor(Math.random() * 4);
-  for (let i = 0; i < count; i += 1) {
-    const size = 4 + Math.random() * 7;
-    const geo = new THREE.DodecahedronGeometry(size, 0);
-    const rock = new THREE.Mesh(geo, mat);
-    rock.castShadow = true;
-    const offset = new THREE.Vector3(
-      (Math.random() - 0.5) * 24,
-      size * 0.35,
-      (Math.random() - 0.5) * 24
-    );
-    rock.position.copy(center).add(offset);
-    group.add(rock);
-  }
-  return group;
-}
-
-function spawnRuins(center) {
-  const group = new THREE.Group();
-  const mat = new THREE.MeshStandardMaterial({
-    color: 0xcdb293,
-    roughness: 0.8,
-    flatShading: true,
-  });
-  const base = new THREE.Mesh(new THREE.BoxGeometry(28, 2, 28), mat);
-  base.position.copy(center).setY(1);
-  group.add(base);
-
-  for (let i = 0; i < 5; i += 1) {
-    const height = 6 + Math.random() * 12;
-    const col = new THREE.Mesh(new THREE.BoxGeometry(2.2, height, 2.2), mat);
-    col.castShadow = true;
-    col.position.copy(center).add(
-      new THREE.Vector3(
-        (Math.random() - 0.5) * 16,
-        height / 2,
-        (Math.random() - 0.5) * 16
-      )
-    );
-    group.add(col);
-  }
-
-  const arc = new THREE.Mesh(
-    new THREE.TorusGeometry(8, 0.8, 16, 60),
-    new THREE.MeshStandardMaterial({
-      color: 0xefe2d0,
-      emissive: 0x2c1f13,
-      roughness: 0.2,
-      metalness: 0.3,
-    })
-  );
-  arc.rotation.x = Math.PI / 2;
-  arc.position.copy(center).setY(8);
-  group.add(arc);
-  return group;
-}
-
-function spawnOasis(center) {
-  const group = new THREE.Group();
-  const pool = new THREE.Mesh(
-    new THREE.CircleGeometry(14 + Math.random() * 8, 48),
-    new THREE.MeshPhongMaterial({
-      color: 0x58d8ec,
-      transparent: true,
-      opacity: 0.85,
-      shininess: 100,
-    })
-  );
-  pool.rotation.x = -Math.PI / 2;
-  pool.position.copy(center).setY(0.05);
-  group.add(pool);
-
-  const mist = new THREE.Mesh(
-    new THREE.SphereGeometry(10, 20, 20),
-    new THREE.MeshBasicMaterial({
-      color: 0xbef6ff,
-      transparent: true,
-      opacity: 0.1,
-    })
-  );
-  mist.position.copy(center).setY(5);
-  group.add(mist);
-
-  const palmMat = new THREE.MeshStandardMaterial({ color: 0x2b5534, roughness: 0.6 });
-  const trunkMat = new THREE.MeshStandardMaterial({ color: 0x9c6b41, roughness: 0.9 });
-  const palms = 3 + Math.floor(Math.random() * 2);
-  for (let i = 0; i < palms; i += 1) {
-    const trunk = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.6, 0.9, 10, 8),
-      trunkMat
-    );
-    trunk.castShadow = true;
-    const pos = center
-      .clone()
-      .add(new THREE.Vector3((Math.random() - 0.5) * 8, 0, (Math.random() - 0.5) * 8));
-    trunk.position.set(pos.x, 5, pos.z);
-    group.add(trunk);
-
-    const leaves = new THREE.Mesh(new THREE.ConeGeometry(6, 3, 8, 1, true), palmMat);
-    leaves.position.set(pos.x, 10.5, pos.z);
-    leaves.rotation.x = Math.PI;
-    group.add(leaves);
-  }
-  return group;
-}
-
-function spawnCrystals(center) {
-  const group = new THREE.Group();
-  const mat = new THREE.MeshStandardMaterial({
-    color: 0xaef6ff,
-    emissive: 0x2e6275,
-    metalness: 0.4,
-    roughness: 0.2,
-  });
-  const count = 5 + Math.floor(Math.random() * 4);
-  for (let i = 0; i < count; i += 1) {
-    const height = 6 + Math.random() * 10;
-    const geo = new THREE.ConeGeometry(1.2 + Math.random() * 0.8, height, 6);
-    const crystal = new THREE.Mesh(geo, mat);
-    crystal.castShadow = true;
-    const offset = new THREE.Vector3(
-      (Math.random() - 0.5) * 14,
-      height / 2,
-      (Math.random() - 0.5) * 14
-    );
-    crystal.position.copy(center).add(offset);
-    group.add(crystal);
-  }
-  return group;
-}
-
-function spawnMirage(center) {
-  const group = new THREE.Group();
-  const ring = new THREE.Mesh(
-    new THREE.TorusGeometry(10 + Math.random() * 5, 0.9, 24, 80),
-    new THREE.MeshBasicMaterial({
-      color: 0xfff2cf,
-      transparent: true,
-      opacity: 0.35,
-    })
-  );
-  ring.rotation.x = Math.PI / 2;
-  ring.position.copy(center).setY(6);
-  group.add(ring);
-
-  const orb = new THREE.Mesh(
-    new THREE.SphereGeometry(3, 20, 20),
-    new THREE.MeshBasicMaterial({
-      color: 0xffcba4,
-      transparent: true,
-      opacity: 0.55,
-    })
-  );
-  orb.position.copy(center).setY(6);
-  group.add(orb);
-  return group;
-}
-
-function spawnFireflies(center) {
-  const group = new THREE.Group();
-  const count = 80;
-  const geometry = new THREE.BufferGeometry();
-  const positions = new Float32Array(count * 3);
-  for (let i = 0; i < count; i += 1) {
-    positions[i * 3] = center.x + (Math.random() - 0.5) * 20;
-    positions[i * 3 + 1] = 3 + Math.random() * 12;
-    positions[i * 3 + 2] = center.z + (Math.random() - 0.5) * 20;
-  }
-  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-  const material = new THREE.PointsMaterial({
-    color: 0xfff6d3,
-    size: 0.7,
-    transparent: true,
-    opacity: 0.85,
-  });
-  const fireflies = new THREE.Points(geometry, material);
-  group.add(fireflies);
-  return group;
-}
-
-function spawnTotems(center) {
-  const group = new THREE.Group();
-  const mat = new THREE.MeshStandardMaterial({
-    color: 0xfce0b8,
-    emissive: 0x2f130a,
-    roughness: 0.3,
-    metalness: 0.1,
-  });
-  const columns = 3 + Math.floor(Math.random() * 3);
-  for (let i = 0; i < columns; i += 1) {
-    const height = 10 + Math.random() * 8;
-    const twist = new THREE.Mesh(
-      new THREE.CylinderGeometry(1.5, 2.5, height, 16, 1, true),
-      mat
-    );
-    twist.castShadow = true;
-    twist.position.copy(center).add(
-      new THREE.Vector3(
-        Math.cos((i / columns) * Math.PI * 2) * 6,
-        height / 2,
-        Math.sin((i / columns) * Math.PI * 2) * 6
-      )
-    );
-    twist.rotation.y = Math.random() * Math.PI;
-    group.add(twist);
-  }
-  return group;
-}
-
-function spawnCreatures(center) {
-  const group = new THREE.Group();
-  const bodyMat = new THREE.MeshStandardMaterial({
-    color: 0xe8d9ff,
-    emissive: 0x38245b,
-    metalness: 0.3,
-    roughness: 0.4,
-  });
-  const limbMat = new THREE.MeshStandardMaterial({ color: 0xffdab8, emissive: 0x3f1e15 });
-  const count = 4 + Math.floor(Math.random() * 4);
-  for (let i = 0; i < count; i += 1) {
-    const creature = new THREE.Group();
-    const body = new THREE.Mesh(new THREE.SphereGeometry(2.2, 18, 18), bodyMat);
-    body.castShadow = true;
-    creature.add(body);
-    const head = new THREE.Mesh(new THREE.SphereGeometry(1.2, 16, 16), bodyMat);
-    head.position.y = 2.5;
-    creature.add(head);
-    const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.2, 2.5, 8), limbMat);
-    antenna.position.set(0.8, 3.6, 0);
-    creature.add(antenna);
-    const limb = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.3, 3.6, 10), limbMat);
-    limb.position.set(1.2, -1, 0.4);
-    limb.rotation.z = Math.PI / 4;
-    creature.add(limb);
-    const offset = new THREE.Vector3((Math.random() - 0.5) * 30, 0, (Math.random() - 0.5) * 30);
-    creature.position.copy(center).add(offset);
-    creature.position.y = 1.6;
-    group.add(creature);
-  }
-  return group;
-}
-
-function spawnNomads(center) {
-  const group = new THREE.Group();
-  const tentMat = new THREE.MeshStandardMaterial({ color: 0xfeccb5, roughness: 0.7 });
-  const fabricMat = new THREE.MeshStandardMaterial({ color: 0xe07143, emissive: 0x2b0600 });
-  const caravan = new THREE.Group();
-  for (let i = 0; i < 3; i += 1) {
-    const base = new THREE.Mesh(new THREE.CylinderGeometry(3, 0.5, 3, 16, 1, true), tentMat);
-    base.rotation.x = Math.PI;
-    base.position.set(i * 6, 2, 0);
-    caravan.add(base);
-    const cloth = new THREE.Mesh(new THREE.PlaneGeometry(6, 3, 1, 1), fabricMat);
-    cloth.position.set(i * 6, 2.2, 0);
-    cloth.rotation.y = (i % 2 === 0 ? 1 : -1) * Math.PI / 12;
-    caravan.add(cloth);
-  }
-  caravan.position.copy(center);
-  group.add(caravan);
-  return group;
-}
-
-function spawnStructures(center) {
-  const group = new THREE.Group();
-  const mat = new THREE.MeshStandardMaterial({
-    color: 0xded7ff,
-    emissive: 0x2c2c54,
-    metalness: 0.5,
-    roughness: 0.25,
-  });
-  const towerCount = 3 + Math.floor(Math.random() * 3);
-  for (let i = 0; i < towerCount; i += 1) {
-    const height = 18 + Math.random() * 15;
-    const tower = new THREE.Mesh(new THREE.CylinderGeometry(2, 3, height, 6, 1, true), mat);
-    tower.castShadow = true;
-    const offset = new THREE.Vector3((Math.random() - 0.5) * 40, height / 2, (Math.random() - 0.5) * 40);
-    tower.position.copy(center).add(offset);
-    group.add(tower);
-    const halo = new THREE.Mesh(new THREE.TorusGeometry(4, 0.3, 16, 60), new THREE.MeshBasicMaterial({ color: 0xffea8a }));
-    halo.rotation.x = Math.PI / 2;
-    halo.position.copy(tower.position).setY(height + 2);
-    group.add(halo);
-  }
-  return group;
-}
-
-function spawnStorm(center) {
-  const group = new THREE.Group();
-  const funnel = new THREE.Mesh(
-    new THREE.ConeGeometry(30, 70, 16, 16, true),
-    new THREE.MeshStandardMaterial({
-      color: 0xcdbba6,
-      transparent: true,
-      opacity: 0.25,
-      side: THREE.DoubleSide,
-    })
-  );
-  funnel.position.copy(center).setY(35);
-  group.add(funnel);
-  const lightning = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.5, 1.2, 40, 8),
-    new THREE.MeshBasicMaterial({ color: 0xfff7ce })
-  );
-  lightning.position.copy(center).setY(20);
-  lightning.rotation.z = Math.PI / 8;
-  group.add(lightning);
-  return group;
-}
-
-function spawnFlora(center) {
-  const group = new THREE.Group();
-  const mat = new THREE.MeshStandardMaterial({ color: 0xc0ffb2, emissive: 0x1f3d28 });
-  const count = 10 + Math.floor(Math.random() * 10);
-  for (let i = 0; i < count; i += 1) {
-    const petal = new THREE.Mesh(new THREE.SphereGeometry(0.8 + Math.random() * 0.6, 8, 8), mat);
-    const offset = new THREE.Vector3((Math.random() - 0.5) * 28, Math.random() * 1.5, (Math.random() - 0.5) * 28);
-    petal.position.copy(center).add(offset);
-    group.add(petal);
-  }
-  return group;
-}
-
-function spawnPortals(center) {
-  const group = new THREE.Group();
-  const ringMat = new THREE.MeshStandardMaterial({ color: 0x96e6ff, emissive: 0x114085, metalness: 0.4 });
-  for (let i = 0; i < 2; i += 1) {
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(10, 1, 16, 80), ringMat);
-    ring.position.copy(center).add(new THREE.Vector3(i * 14 - 7, 8, 0));
-    ring.rotation.y = Math.PI / 4;
-    group.add(ring);
-  }
-  return group;
-}
-
-function spawnSentinels(center) {
-  const group = new THREE.Group();
-  for (let i = 0; i < 4; i += 1) {
-    const sentinel = new THREE.Mesh(
-      new THREE.BoxGeometry(2.5, 14, 2.5),
-      new THREE.MeshStandardMaterial({ color: 0x7078ff, emissive: 0x1b1f3f, metalness: 0.6 })
-    );
-    sentinel.castShadow = true;
-    const offset = new THREE.Vector3(Math.cos((i / 4) * Math.PI * 2) * 10, 7, Math.sin((i / 4) * Math.PI * 2) * 10);
-    sentinel.position.copy(center).add(offset);
-    group.add(sentinel);
-  }
-  return group;
-}
-
 function disposeObject(obj) {
   obj.traverse?.((child) => {
     if (child.geometry) child.geometry.dispose();
@@ -958,26 +932,113 @@ function disposeObject(obj) {
   });
 }
 
+function bindTouchControls(keys, touchLook, controls, camera) {
+  const cleanupFns = [];
+  const joystick = document.getElementById("joystick");
+  const joystickThumb = document.getElementById("joystick-thumb");
+  const lookZone = document.getElementById("look-zone");
+
+  if (joystick && joystickThumb) {
+    const handleMove = (clientX, clientY) => {
+      const rect = joystick.getBoundingClientRect();
+      const relX = clientX - (rect.left + rect.width / 2);
+      const relY = clientY - (rect.top + rect.height / 2);
+      const maxRadius = rect.width / 2;
+      const distance = Math.min(Math.sqrt(relX * relX + relY * relY), maxRadius);
+      const angle = Math.atan2(relY, relX);
+      joystickThumb.style.transform = `translate(${Math.cos(angle) * distance}px, ${Math.sin(angle) * distance}px)`;
+      const normalizedX = distance ? Math.cos(angle) * (distance / maxRadius) : 0;
+      const normalizedY = distance ? Math.sin(angle) * (distance / maxRadius) : 0;
+      keys.forward = normalizedY < -0.2;
+      keys.backward = normalizedY > 0.2;
+      keys.left = normalizedX < -0.2;
+      keys.right = normalizedX > 0.2;
+    };
+
+    const resetThumb = () => {
+      joystickThumb.style.transform = "translate(0,0)";
+      keys.forward = keys.backward = keys.left = keys.right = false;
+    };
+
+    const onTouchStart = (event) => {
+      event.preventDefault();
+      const touch = event.touches[0];
+      handleMove(touch.clientX, touch.clientY);
+    };
+
+    const onTouchMove = (event) => {
+      event.preventDefault();
+      const touch = event.touches[0];
+      handleMove(touch.clientX, touch.clientY);
+    };
+
+    const onTouchEnd = () => {
+      resetThumb();
+    };
+
+    joystick.addEventListener("touchstart", onTouchStart, { passive: false });
+    joystick.addEventListener("touchmove", onTouchMove, { passive: false });
+    joystick.addEventListener("touchend", onTouchEnd);
+
+    cleanupFns.push(
+      () => joystick.removeEventListener("touchstart", onTouchStart),
+      () => joystick.removeEventListener("touchmove", onTouchMove),
+      () => joystick.removeEventListener("touchend", onTouchEnd)
+    );
+  }
+
+  if (lookZone) {
+    const onLookStart = (event) => {
+      const touch = event.touches[0];
+      touchLook.active = true;
+      touchLook.startX = touch.clientX;
+      touchLook.startY = touch.clientY;
+    };
+
+    const onLookMove = (event) => {
+      if (!touchLook.active) return;
+      const touch = event.touches[0];
+      const deltaX = touch.clientX - touchLook.startX;
+      const deltaY = touch.clientY - touchLook.startY;
+      touchLook.startX = touch.clientX;
+      touchLook.startY = touch.clientY;
+      controls.getObject().rotation.y -= deltaX * 0.003;
+      camera.rotation.x -= deltaY * 0.002;
+      camera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, camera.rotation.x));
+    };
+
+    const onLookEnd = () => {
+      touchLook.active = false;
+    };
+
+    lookZone.addEventListener("touchstart", onLookStart);
+    lookZone.addEventListener("touchmove", onLookMove, { passive: false });
+    lookZone.addEventListener("touchend", onLookEnd);
+
+    cleanupFns.push(
+      () => lookZone.removeEventListener("touchstart", onLookStart),
+      () => lookZone.removeEventListener("touchmove", onLookMove),
+      () => lookZone.removeEventListener("touchend", onLookEnd)
+    );
+  }
+
+  return cleanupFns;
+}
+
 function createPriestShrine({ scene, camera, trackUrl }) {
   const shrine = new THREE.Group();
-  const baseMat = new THREE.MeshStandardMaterial({
-    color: 0x2e1f32,
-    roughness: 0.8,
-    metalness: 0.2,
-  });
-  const platform = new THREE.Mesh(new THREE.CylinderGeometry(12, 14, 2.4, 36), baseMat);
+
+  const platform = new THREE.Mesh(
+    new THREE.CylinderGeometry(12, 14, 2.4, 36),
+    getPriestBaseMaterial()
+  );
   platform.receiveShadow = true;
   platform.position.y = 1.2;
   shrine.add(platform);
 
   const rune = new THREE.Mesh(
     new THREE.TorusGeometry(9, 0.45, 16, 80),
-    new THREE.MeshStandardMaterial({
-      color: 0xfff2c1,
-      emissive: 0x4c2d1f,
-      metalness: 0.4,
-      roughness: 0.25,
-    })
+    getPriestRuneMaterial()
   );
   rune.rotation.x = Math.PI / 2;
   rune.position.y = 2.4;
@@ -989,7 +1050,7 @@ function createPriestShrine({ scene, camera, trackUrl }) {
 
   const halo = new THREE.Mesh(
     new THREE.TorusGeometry(5.5, 0.15, 12, 60),
-    new THREE.MeshBasicMaterial({ color: 0xfff5ce, transparent: true, opacity: 0.75 })
+    getPriestHaloMaterial()
   );
   halo.rotation.x = Math.PI / 2;
   halo.position.y = 11.3;
@@ -997,7 +1058,7 @@ function createPriestShrine({ scene, camera, trackUrl }) {
 
   const flame = new THREE.Mesh(
     new THREE.SphereGeometry(1.2, 16, 16),
-    new THREE.MeshBasicMaterial({ color: 0xffe9b8, transparent: true, opacity: 0.65 })
+    getPriestFlameMaterial()
   );
   flame.position.y = 10.2;
   shrine.add(flame);
@@ -1036,30 +1097,26 @@ function createPriestShrine({ scene, camera, trackUrl }) {
 
 function buildPriestFigure() {
   const figure = new THREE.Group();
-  const robeMat = new THREE.MeshStandardMaterial({
-    color: 0xcdd7ff,
-    emissive: 0x1d1737,
-    roughness: 0.6,
-    metalness: 0.1,
-  });
-  const robe = new THREE.Mesh(new THREE.ConeGeometry(4.5, 11, 24, 1, true), robeMat);
+
+  const robe = new THREE.Mesh(
+    new THREE.ConeGeometry(4.5, 11, 24, 1, true),
+    getPriestRobeMaterial()
+  );
   robe.castShadow = true;
   robe.position.y = 5.5;
   figure.add(robe);
 
-  const sashMat = new THREE.MeshStandardMaterial({
-    color: 0xffb347,
-    emissive: 0x4e1e0d,
-    metalness: 0.3,
-  });
-  const sash = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 12, 8), sashMat);
+  const sash = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.3, 0.3, 12, 8),
+    getPriestSashMaterial()
+  );
   sash.position.set(0, 5.5, 2.5);
   sash.rotation.x = Math.PI / 2;
   figure.add(sash);
 
   const head = new THREE.Mesh(
     new THREE.SphereGeometry(1.6, 18, 18),
-    new THREE.MeshStandardMaterial({ color: 0xf5e3d7, roughness: 0.7 })
+    getPriestHeadMaterial()
   );
   head.position.y = 11;
   head.castShadow = true;
@@ -1067,13 +1124,15 @@ function buildPriestFigure() {
 
   const hood = new THREE.Mesh(
     new THREE.SphereGeometry(2.6, 18, 18, 0, Math.PI * 2, Math.PI / 2, Math.PI),
-    robeMat
+    getPriestRobeMaterial()
   );
   hood.position.y = 10.4;
   figure.add(hood);
 
-  const staffMat = new THREE.MeshStandardMaterial({ color: 0x7a4b35, roughness: 0.8 });
-  const staff = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.35, 12, 12), staffMat);
+  const staff = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.2, 0.35, 12, 12),
+    getPriestStaffMaterial()
+  );
   staff.position.set(2.8, 6.2, 0);
   staff.rotation.z = Math.PI / 12;
   staff.castShadow = true;
@@ -1081,407 +1140,10 @@ function buildPriestFigure() {
 
   const staffOrb = new THREE.Mesh(
     new THREE.SphereGeometry(0.8, 12, 12),
-    new THREE.MeshBasicMaterial({ color: 0x9ad8ff, transparent: true, opacity: 0.9 })
+    getPriestOrbMaterial()
   );
   staffOrb.position.set(3.1, 12.2, 0);
   figure.add(staffOrb);
 
   return figure;
-}
-
-function spawnInstructionStructure(center, spec = {}) {
-  const group = new THREE.Group();
-  const scale = specSizeToScale(spec.size, spec.scale);
-  const floors = Math.max(1, Math.round(readNumber(spec.floors, readNumber(spec.height, 12) / 3.5) || 4));
-  const width = THREE.MathUtils.clamp(readNumber(spec.width, 12) * scale, 6, 80);
-  const depth = THREE.MathUtils.clamp(readNumber(spec.depth, width * 0.7), 6, 80);
-  const height = THREE.MathUtils.clamp(readNumber(spec.height, floors * 4.2) * scale, 8, 220);
-  const bodyColor = colorWithFallback(spec.color, 0xded7ff);
-
-  const building = new THREE.Mesh(
-    new THREE.BoxGeometry(width, height, depth),
-    new THREE.MeshStandardMaterial({
-      color: bodyColor,
-      emissive: bodyColor.clone().multiplyScalar(0.12),
-      metalness: 0.35,
-      roughness: 0.35,
-    })
-  );
-  building.castShadow = true;
-  building.position.y = height / 2;
-  group.add(building);
-
-  const roof = new THREE.Mesh(
-    new THREE.ConeGeometry(Math.max(2, width * 0.4), Math.max(2, height * 0.12), 5),
-    new THREE.MeshStandardMaterial({
-      color: bodyColor.clone().offsetHSL(0.05, 0.1, 0.15),
-      emissive: bodyColor.clone().multiplyScalar(0.2),
-      metalness: 0.45,
-      roughness: 0.2,
-    })
-  );
-  roof.position.y = height + roof.geometry.parameters.height / 2;
-  group.add(roof);
-
-  const windowGeo = new THREE.PlaneGeometry(1.4, 1.8);
-  const windowMat = new THREE.MeshBasicMaterial({
-    color: 0xfff7d6,
-    transparent: true,
-    opacity: 0.8,
-    side: THREE.DoubleSide,
-  });
-  const windowsPerSide = Math.min(6, Math.max(2, Math.round(width / 4)));
-  const windowSpacing = width / (windowsPerSide + 1);
-  for (let side = 0; side < 4; side += 1) {
-    for (let i = 0; i < windowsPerSide; i += 1) {
-      const pane = new THREE.Mesh(windowGeo, windowMat);
-      const offset = -width / 2 + windowSpacing * (i + 1);
-      pane.position.y = height * 0.5 * ((i % 2) + 0.4);
-      switch (side) {
-        case 0:
-          pane.position.set(offset, pane.position.y, depth / 2 + 0.01);
-          break;
-        case 1:
-          pane.position.set(offset, pane.position.y, -depth / 2 - 0.01);
-          pane.rotation.y = Math.PI;
-          break;
-        case 2:
-          pane.position.set(width / 2 + 0.01, pane.position.y, offset);
-          pane.rotation.y = Math.PI / 2;
-          break;
-        default:
-          pane.position.set(-width / 2 - 0.01, pane.position.y, offset);
-          pane.rotation.y = -Math.PI / 2;
-          break;
-      }
-      group.add(pane);
-    }
-  }
-
-  group.position.copy(center);
-  return group;
-}
-
-function spawnInstructionTree(center, spec = {}) {
-  const group = new THREE.Group();
-  const scale = specSizeToScale(spec.size, spec.scale);
-  const height = THREE.MathUtils.clamp(readNumber(spec.height, 10) * scale, 4, 60);
-  const trunkRadius = Math.max(0.4, height * 0.08);
-  const trunkMat = new THREE.MeshStandardMaterial({
-    color: colorWithFallback(spec.trunkColor || spec.barkColor, 0x8c5a33),
-    roughness: 0.8,
-    metalness: 0.05,
-  });
-  const trunk = new THREE.Mesh(
-    new THREE.CylinderGeometry(trunkRadius * 0.7, trunkRadius, height, 8),
-    trunkMat
-  );
-  trunk.castShadow = true;
-  trunk.position.y = height / 2;
-  group.add(trunk);
-
-  const canopyMat = new THREE.MeshStandardMaterial({
-    color: colorWithFallback(spec.color || spec.foliageColor, 0x47b07d),
-    emissive: colorWithFallback(spec.color || spec.foliageColor, 0x1b4c3a).multiplyScalar(0.18),
-  });
-  const canopyHeight = height * 0.6;
-  const canopy = new THREE.Mesh(new THREE.SphereGeometry(canopyHeight * 0.5, 18, 18), canopyMat);
-  canopy.position.y = height;
-  group.add(canopy);
-
-  const secondary = new THREE.Mesh(
-    new THREE.SphereGeometry(canopyHeight * 0.35, 16, 16),
-    canopyMat
-  );
-  secondary.position.set(canopyHeight * 0.3, height * 0.9, 0);
-  group.add(secondary);
-
-  group.position.copy(center);
-  return group;
-}
-
-function spawnInstructionWater(center, spec = {}) {
-  const group = new THREE.Group();
-  const radius = THREE.MathUtils.clamp(readNumber(spec.radius, spec.width || 16), 6, 220);
-  const waterMat = new THREE.MeshPhongMaterial({
-    color: colorWithFallback(spec.color, 0x58d8ec),
-    transparent: true,
-    opacity: 0.85,
-    shininess: 90,
-  });
-  const pool = new THREE.Mesh(new THREE.CircleGeometry(radius, 48), waterMat);
-  pool.rotation.x = -Math.PI / 2;
-  pool.position.y = 0.02;
-  group.add(pool);
-
-  const rim = new THREE.Mesh(
-    new THREE.RingGeometry(radius * 1.02, radius * 1.2, 48),
-    new THREE.MeshBasicMaterial({
-      color: 0xffffff,
-      transparent: true,
-      opacity: 0.18,
-      side: THREE.DoubleSide,
-    })
-  );
-  rim.rotation.x = -Math.PI / 2;
-  rim.position.y = 0.04;
-  group.add(rim);
-
-  group.position.copy(center);
-  return group;
-}
-
-function spawnInstructionOasis(center, spec = {}) {
-  const group = new THREE.Group();
-  const water = spawnInstructionWater(new THREE.Vector3(0, 0, 0), spec);
-  group.add(water);
-  const treeCount = THREE.MathUtils.clamp(readNumber(spec.trees, spec.count) || 3, 2, 6);
-  for (let i = 0; i < treeCount; i += 1) {
-    const angle = (i / treeCount) * Math.PI * 2;
-    const radius = readNumber(spec.radius, 16) * 1.1;
-    const treeCenter = new THREE.Vector3(
-      Math.cos(angle) * radius,
-      0,
-      Math.sin(angle) * radius
-    );
-    const tree = spawnInstructionTree(treeCenter, {
-      size: spec.size || "medium",
-      color: spec.foliageColor || spec.color,
-      trunkColor: spec.trunkColor,
-      height: readNumber(spec.height, 12) * 0.8,
-    });
-    group.add(tree);
-  }
-  group.position.copy(center);
-  return group;
-}
-
-function spawnInstructionCrystal(center, spec = {}) {
-  return spawnInstructionFromExisting(spawnCrystals, center, spec);
-}
-
-function spawnInstructionPortal(center, spec = {}) {
-  return spawnInstructionFromExisting(spawnPortals, center, spec);
-}
-
-function spawnInstructionFireflies(center, spec = {}) {
-  return spawnInstructionFromExisting(spawnFireflies, center, spec);
-}
-
-function spawnInstructionTotem(center, spec = {}) {
-  return spawnInstructionFromExisting(spawnTotems, center, spec);
-}
-
-function spawnInstructionRock(center, spec = {}) {
-  return spawnInstructionFromExisting(spawnRocks, center, spec);
-}
-
-function spawnInstructionCacti(center, spec = {}) {
-  return spawnInstructionFromExisting(spawnCacti, center, spec);
-}
-
-function spawnInstructionRuins(center, spec = {}) {
-  return spawnInstructionFromExisting(spawnRuins, center, spec);
-}
-
-function spawnInstructionMirage(center, spec = {}) {
-  return spawnInstructionFromExisting(spawnMirage, center, spec);
-}
-
-function spawnInstructionNomads(center, spec = {}) {
-  return spawnInstructionFromExisting(spawnNomads, center, spec);
-}
-
-function spawnInstructionStorm(center, spec = {}) {
-  return spawnInstructionFromExisting(spawnStorm, center, spec);
-}
-
-function spawnInstructionDune(center, spec = {}) {
-  const group = new THREE.Group();
-  const scale = specSizeToScale(spec.size, spec.scale);
-  const width = THREE.MathUtils.clamp(readNumber(spec.width, 60) * scale, 20, 260);
-  const height = THREE.MathUtils.clamp(readNumber(spec.height, 12) * scale, 4, 60);
-  const geometry = new THREE.CylinderGeometry(width, width * 0.4, height, 24, 1, true);
-  geometry.rotateX(Math.PI / 2);
-  const material = new THREE.MeshStandardMaterial({
-    color: colorWithFallback(spec.color, 0xe3c086),
-    flatShading: true,
-    roughness: 0.95,
-    metalness: 0.05,
-    side: THREE.DoubleSide,
-  });
-  const dune = new THREE.Mesh(geometry, material);
-  dune.position.y = height * 0.25;
-  group.add(dune);
-  group.position.copy(center);
-  return group;
-}
-
-function spawnInstructionBridge(center, spec = {}) {
-  const group = new THREE.Group();
-  const length = THREE.MathUtils.clamp(readNumber(spec.length, 40), 20, 200);
-  const width = THREE.MathUtils.clamp(readNumber(spec.width, 6), 3, 30);
-  const color = colorWithFallback(spec.color, 0xcbb6a0);
-  const walkway = new THREE.Mesh(
-    new THREE.BoxGeometry(length, 1, width),
-    new THREE.MeshStandardMaterial({
-      color,
-      roughness: 0.7,
-      metalness: 0.15,
-    })
-  );
-  walkway.castShadow = true;
-  walkway.position.y = 3;
-  group.add(walkway);
-
-  const archGeo = new THREE.TorusGeometry(width, 0.5, 12, 40, Math.PI);
-  const archMat = new THREE.MeshStandardMaterial({
-    color: color.clone().offsetHSL(0, 0, 0.15),
-    metalness: 0.3,
-  });
-  const arch = new THREE.Mesh(archGeo, archMat);
-  arch.rotation.z = Math.PI;
-  arch.scale.set(length / 20, 1, 1);
-  arch.position.y = 3.5;
-  group.add(arch);
-
-  group.position.copy(center);
-  return group;
-}
-
-function spawnInstructionMonolith(center, spec = {}) {
-  const group = new THREE.Group();
-  const scale = specSizeToScale(spec.size, spec.scale);
-  const height = THREE.MathUtils.clamp(readNumber(spec.height, 30) * scale, 10, 200);
-  const color = colorWithFallback(spec.color, 0x7078ff);
-  const slab = new THREE.Mesh(
-    new THREE.BoxGeometry(Math.max(2, height * 0.15), height, Math.max(2, height * 0.15)),
-    new THREE.MeshStandardMaterial({
-      color,
-      emissive: color.clone().multiplyScalar(0.2),
-      metalness: 0.6,
-      roughness: 0.25,
-    })
-  );
-  slab.castShadow = true;
-  slab.position.y = height / 2;
-  group.add(slab);
-
-  const ring = new THREE.Mesh(
-    new THREE.TorusGeometry(Math.max(3, height * 0.3), 0.25, 16, 40),
-    new THREE.MeshBasicMaterial({ color: 0xfff9c4 })
-  );
-  ring.rotation.x = Math.PI / 2;
-  ring.position.y = height * 0.8;
-  group.add(ring);
-
-  group.position.copy(center);
-  return group;
-}
-
-function spawnInstructionFlora(center, spec = {}) {
-  return spawnInstructionFromExisting(spawnFlora, center, spec);
-}
-
-function spawnInstructionCreature(center, spec = {}) {
-  return spawnInstructionFromExisting(spawnCreatures, center, spec);
-}
-
-function spawnInstructionSentinel(center, spec = {}) {
-  return spawnInstructionFromExisting(spawnSentinels, center, spec);
-}
-
-function spawnInstructionFromExisting(factory, center, spec = {}) {
-  const object = factory(new THREE.Vector3(0, 0, 0));
-  if (spec.color) {
-    tintGroupMaterials(object, spec.color);
-  }
-  const scale = specSizeToScale(spec.size, spec.scale);
-  if (scale !== 1) {
-    object.scale.setScalar(scale);
-  }
-  object.position.copy(center);
-  return object;
-}
-
-function tintGroupMaterials(object, colorValue) {
-  const tint = resolveColor(colorValue);
-  if (!tint) return;
-  object.traverse?.((child) => {
-    const apply = (material) => {
-      if (!material) return;
-      if (material.color) {
-        material.color.copy(tint);
-      }
-      if (material.emissive) {
-        material.emissive.copy(tint).multiplyScalar(0.2);
-      }
-    };
-    if (Array.isArray(child.material)) {
-      child.material.forEach(apply);
-    } else {
-      apply(child.material);
-    }
-  });
-}
-
-function colorWithFallback(value, fallback) {
-  const tint = resolveColor(value);
-  if (tint) return tint;
-  return new THREE.Color(fallback);
-}
-
-function resolveColor(value) {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return new THREE.Color(value);
-  }
-  if (typeof value === "string" && value.trim()) {
-    try {
-      const parsed = new THREE.Color(value.trim());
-      if (Number.isNaN(parsed.r) || Number.isNaN(parsed.g) || Number.isNaN(parsed.b)) {
-        return null;
-      }
-      return parsed;
-    } catch (error) {
-      return null;
-    }
-  }
-  return null;
-}
-
-function specSizeToScale(sizeValue, explicitScale) {
-  if (typeof explicitScale === "number" && Number.isFinite(explicitScale)) {
-    return THREE.MathUtils.clamp(explicitScale, 0.4, 4);
-  }
-  if (typeof sizeValue === "string") {
-    const value = sizeValue.toLowerCase();
-    if (["tiny", "small", "pequeno", "pequeño"].includes(value)) return 0.7;
-    if (["huge", "large", "gigantic", "enorme", "grand", "grande"].includes(value)) return 1.6;
-    if (["colossal", "gigante"].includes(value)) return 2.2;
-  }
-  return 1;
-}
-
-function readNumber(value, fallback) {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string") {
-    const parsed = parseFloat(value);
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  return fallback;
-}
-
-function withBasePath(assetPath) {
-  if (!assetPath) return assetPath;
-  if (assetPath.startsWith("http://") || assetPath.startsWith("https://") || assetPath.startsWith("//")) {
-    return assetPath;
-  }
-  const cleanedBase = BASE_URL.endsWith("/")
-    ? BASE_URL.slice(0, -1)
-    : BASE_URL;
-  const normalized =
-    assetPath.startsWith("/") || !cleanedBase
-      ? assetPath
-      : `/${assetPath}`;
-  return `${cleanedBase}${normalized}`;
 }
